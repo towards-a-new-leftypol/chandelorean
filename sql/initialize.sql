@@ -1,12 +1,20 @@
 BEGIN TRANSACTION;
 
+CREATE TABLE IF NOT EXISTS sites
+    ( site_id serial primary key
+    , name text NOT NULL
+    , url text NOT NULL
+    );
+
 CREATE TABLE IF NOT EXISTS boards
     ( board_id serial primary key
     , name text NOT NULL
     , pathpart text NOT NULL -- if it's /a/ then the pathpart is a
+    , site_id int NOT NULL
+    , CONSTRAINT site_fk FOREIGN KEY (site_id) REFERENCES sites (site_id) ON DELETE CASCADE
     );
 
-CREATE TABLE IF NOT EXISTS thread
+CREATE TABLE IF NOT EXISTS threads
     ( thread_id bigserial primary key
     , creation_time timestamp with time zone NOT NULL
     , board_id int NOT NULL
@@ -19,7 +27,7 @@ CREATE TABLE IF NOT EXISTS posts
     , body text
     , body_search_index tsvector
     , thread_id bigint NOT NULL
-    , CONSTRAINT thread_fk FOREIGN KEY (thread_id) REFERENCES thread (thread_id) ON DELETE CASCADE
+    , CONSTRAINT thread_fk FOREIGN KEY (thread_id) REFERENCES threads (thread_id) ON DELETE CASCADE
     );
 CREATE INDEX post_body_search_idx ON posts USING GIN (body_search_index);
 
