@@ -4,7 +4,7 @@ let
   inherit (nixpkgs) pkgs;
 
   f = { mkDerivation, base, stdenv, cabal-install,
-        aeson
+        aeson, safe-exceptions
       }:
       mkDerivation {
         pname = "chan-delorean";
@@ -25,9 +25,7 @@ let
 
   variant = if doBenchmark then pkgs.haskell.lib.doBenchmark else pkgs.lib.id;
 
-  drv = variant (haskellPackages.callPackage f {
-    req = req;
-  });
+  drv = variant (haskellPackages.callPackage f {});
 
 in
 

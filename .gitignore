@@ -1,3 +1,4 @@
 .dbpassword
 sql/spamnoticer_init.sql
 todo
+dist-newstyle/

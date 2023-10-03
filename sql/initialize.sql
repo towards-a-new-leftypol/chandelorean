@@ -47,13 +47,15 @@ CREATE TABLE IF NOT EXISTS boards
 
 CREATE TABLE IF NOT EXISTS threads
     ( thread_id bigserial primary key
-    , board_thread_id bigint NOT NULL
+    , board_thread_id bigint NOT NULL -- this is the id of the thread in lainchan, mysql
     , creation_time timestamp with time zone NOT NULL
     , board_id int NOT NULL
     , CONSTRAINT board_fk FOREIGN KEY (board_id) REFERENCES boards (board_id) ON DELETE CASCADE
     , CONSTRAINT unique_board_board_thread_id_constraint UNIQUE (board_id, board_thread_id)
     );
-CREATE INDEX threads_board_id_idx ON threads (board_id);
+CREATE INDEX threads_creation_time_idx   ON threads (creation_time);
+CREATE INDEX threads_board_id_idx        ON threads (board_id);
+CREATE INDEX threads_board_thread_id_idx ON threads (board_thread_id);
 
 CREATE TABLE IF NOT EXISTS posts
     ( post_id bigserial primary key
@@ -65,8 +67,9 @@ CREATE TABLE IF NOT EXISTS posts
     , CONSTRAINT unique_thread_board_id_constraint UNIQUE (thread_id, board_post_id)
     , CONSTRAINT thread_fk FOREIGN KEY (thread_id) REFERENCES threads (thread_id) ON DELETE CASCADE
     );
-CREATE INDEX posts_body_search_idx ON posts USING GIN (body_search_index);
-CREATE INDEX posts_thread_id_idx ON posts (thread_id);
+CREATE INDEX posts_creation_time_idx ON posts (creation_time);
+CREATE INDEX posts_body_search_idx   ON posts USING GIN (body_search_index);
+CREATE INDEX posts_thread_id_idx     ON posts (thread_id);
 CREATE INDEX posts_board_post_id_idx ON posts (board_post_id);
 
 CREATE OR REPLACE FUNCTION update_post_body_search_index() RETURNS trigger AS $$
@@ -98,8 +101,9 @@ CREATE TABLE IF NOT EXISTS attachments
         )
     , CONSTRAINT post_fk FOREIGN KEY (post_id) REFERENCES posts (post_id) ON DELETE CASCADE
     );
-CREATE INDEX attachments_post_id_idx ON attachments (post_id);
-CREATE INDEX attachments_md5_hash_idx ON attachments (md5_hash);
+CREATE INDEX attachments_creation_time_idx  ON attachments (creation_time);
+CREATE INDEX attachments_post_id_idx        ON attachments (post_id);
+CREATE INDEX attachments_md5_hash_idx       ON attachments (md5_hash);
 CREATE INDEX attachments_phash_bktree_index ON attachments USING spgist (phash bktree_ops);
 
 CREATE ROLE chan_archive_anon nologin;
