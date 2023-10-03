@@ -1,15 +1,34 @@
-{ pkgs ? import <nixpkgs> {} }:
-
+{ nixpkgs ? import <nixpkgs> {}, compiler ? "default", doBenchmark ? false }: 
 let
-  shell = pkgs.mkShell {
-    buildInputs = with pkgs;
-      [
-        python3
-        postgresql
-        #python3Packages.regex
-      ];
-  };
+
+  inherit (nixpkgs) pkgs;
+
+  f = { mkDerivation, base, stdenv, cabal-install,
+        aeson
+      }:
+      mkDerivation {
+        pname = "chan-delorean";
+        version = "0.0.0.0";
+        src = ./.;
+        isLibrary = false;
+        isExecutable = true;
+        executableHaskellDepends = [
+          base safe-exceptions aeson
+        ];
+        testHaskellDepends = [ cabal-install ];
+        license = "unknown";
+      };
+
+  haskellPackages = if compiler == "default"
+                       then pkgs.haskellPackages
+                       else pkgs.haskell.packages.${compiler};
+
+  variant = if doBenchmark then pkgs.haskell.lib.doBenchmark else pkgs.lib.id;
+
+  drv = variant (haskellPackages.callPackage f {
+    req = req;
+  });
 
 in
 
-  shell
+  if pkgs.lib.inNixShell then drv.env else drv
