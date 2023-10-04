@@ -1,4 +1,5 @@
 {
   "postgrest_url": "http://localhost:3000",
-  "jwt": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiY2hhbl9hcmNoaXZlciJ9.rGIKZokTDKTuQLIv8138bUby5PELfDipYYIDpJzH02c"
+  "jwt": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiY2hhbl9hcmNoaXZlciJ9.rGIKZokTDKTuQLIv8138bUby5PELfDipYYIDpJzH02c",
+  "backup_read_root": "/home/phil/linixy/tmp/leftypol_back/lainchan.leftypol.org"
 }

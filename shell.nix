@@ -4,7 +4,7 @@ let
   inherit (nixpkgs) pkgs;
 
   f = { mkDerivation, base, stdenv, cabal-install,
-        aeson, safe-exceptions
+        aeson, safe-exceptions, bytestring, cmdargs
       }:
       mkDerivation {
         pname = "chan-delorean";
@@ -13,7 +13,7 @@ let
         isLibrary = false;
         isExecutable = true;
         executableHaskellDepends = [
-          base safe-exceptions aeson
+          base safe-exceptions aeson bytestring cmdargs
         ];
         testHaskellDepends = [ cabal-install ];
         license = "unknown";
