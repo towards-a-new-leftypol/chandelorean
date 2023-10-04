@@ -27,6 +27,12 @@ let
 
   drv = variant (haskellPackages.callPackage f {});
 
+  enhancedDrv = if pkgs.lib.inNixShell
+    then drv.env.overrideAttrs (oldAttrs: {
+      buildInputs = oldAttrs.buildInputs or [] ++ [ pkgs.postgresql ];
+    })
+    else drv;
+
 in
 
-  if pkgs.lib.inNixShell then drv.env else drv
+  enhancedDrv
