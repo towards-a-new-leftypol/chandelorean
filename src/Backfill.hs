@@ -5,11 +5,15 @@
 module Main where
 
 import System.Exit
+import Control.Monad (filterM)
 import Data.Aeson (FromJSON, decode)
 import qualified Data.ByteString.Lazy as B
 import System.Console.CmdArgs
 import GHC.Generics
-import System.Directory (listDirectory)
+import System.Directory (listDirectory, doesFileExist)
+import System.FilePath ((</>))
+
+import JSONParsing
 
 data SettingsCLI = SettingsCLI
   { jsonFile :: FilePath
@@ -29,10 +33,39 @@ settingsCLI = SettingsCLI
     } &= summary "Backfill v0.0.1"
 
 
--- Function to list all files and directories inside the backup_read_root
-listBackupContents :: JSONSettings -> IO ()
-listBackupContents settings =
-   listDirectory (backup_read_root settings) >>= mapM_ print
+listCatalogDirectories :: JSONSettings -> IO [FilePath]
+listCatalogDirectories settings = do
+    dirs <- listDirectory (backup_read_root settings)
+    filterM hasCatalog dirs
+  where
+    hasCatalog dir = do
+      let catalogPath = (backup_read_root settings) </> dir </> "catalog.json"
+      doesFileExist catalogPath
+
+
+processBackupDirectory :: JSONSettings -> IO ()
+processBackupDirectory settings = do
+    putStrLn "JSON successfully read!"
+    print settings  -- print the decoded JSON settings
+    dirs <- listCatalogDirectories settings
+    mapM_ print dirs
+    mapM_ processDir dirs
+  where
+    backupDir :: FilePath
+    backupDir = backup_read_root settings
+
+    processDir dir = do
+        let catalogPath = backupDir </> dir </> "catalog.json"
+        putStrLn $ "catalog file path: " ++ catalogPath
+
+        result <- parseJSONFile catalogPath
+
+        case result of
+            Right catalogs ->
+                mapM_ (mapM_ (print . no) . threads) catalogs
+            Left errMsg    ->
+                putStrLn $ "Failed to parse the JSON file in directory: "
+                    ++ dir ++ ". Error: " ++ errMsg
 
 main :: IO ()
 main = do
@@ -49,7 +82,4 @@ main = do
             Nothing -> do
                 putStrLn "Error: Invalid JSON format."
                 exitFailure
-            Just settings -> do
-                putStrLn "JSON successfully read!"
-                print settings  -- print the decoded JSON settings
-                listBackupContents settings
+            Just settings -> processBackupDirectory settings
