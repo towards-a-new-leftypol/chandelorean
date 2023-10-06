@@ -90,10 +90,10 @@ handleHttp action = do
 getSiteBoards :: T.JSONSettings -> Int -> IO (Either HttpError [ String ])
 getSiteBoards settings site_id_ = get settings path >>= return . eitherDecodeResponse
   where
-    path = "/boards?select=name&boards.site_id=eq." ++ show site_id_
+    path = "/boards?select=name&site_id=eq." ++ show site_id_
 
 
-postSite :: T.JSONSettings -> IO (Either HttpError SiteResponse)
+postSite :: T.JSONSettings -> IO (Either HttpError [SiteResponse])
 postSite settings =
     post settings "/sites" payload True >>= return . eitherDecodeResponse
 
@@ -112,4 +112,4 @@ eitherDecodeResponse (Left err) = Left err
 eitherDecodeResponse (Right bs) =
     case eitherDecode bs of
         Right val -> Right val
-        Left err -> Left $ StatusCodeError 500 $ LC8.pack $ "Failed to decode JSON: " ++ err
+        Left err -> Left $ StatusCodeError 500 $ LC8.pack $ "Failed to decode JSON: " ++ err ++ " " ++ (show bs)

@@ -48,15 +48,19 @@ ensureSiteExists settings = do
                 putStrLn $ site_name settings ++ " already exists!"
                 return $ Client.site_id site
             Nothing -> do
-                putStrLn "leftychan.net does not exist. Creating..."
+                putStrLn $ site_name settings ++ " does not exist. Creating..."
                 postResult <- Client.postSite settings
 
                 case postResult of
-                    Right site -> do
+                    Right (site:_) -> do
                         putStrLn $ "Successfully created " ++ site_name settings ++ ". " ++ show site
                         return $ Client.site_id site
+                    Right [] -> do
+                        putStrLn $ "Did not get new site id back from postgrest"
+                        exitFailure
                     Left err -> do
-                        putStrLn $ "Failed to create leftychan.net. Error: " ++ show err
+                        putStrLn $ "Failed to create " ++ site_name settings
+                            ++ " Error: " ++ show err
                         exitFailure
 
         Left err -> do
@@ -70,8 +74,15 @@ processBackupDirectory settings = do
     print settings  -- print the decoded JSON settings
     site_id_ <- ensureSiteExists settings
     dirs <- listCatalogDirectories settings
-    _ <- Client.getSiteBoards settings site_id_
+    boards_result <- Client.getSiteBoards settings site_id_
     putStrLn "Boards fetched!"
+    case boards_result of
+        Left err -> do
+            putStrLn $ "Error fetching boards: " ++ show err
+            exitFailure
+        Right archived_boards -> do
+            print archived_boards
+
     mapM_ putStrLn dirs
     mapM_ processDir dirs
   where
