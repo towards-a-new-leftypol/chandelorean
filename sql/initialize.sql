@@ -33,7 +33,7 @@ DROP ROLE IF EXISTS chan_archive_anon;
 
 CREATE TABLE IF NOT EXISTS sites
     ( site_id serial primary key
-    , name text NOT NULL
+    , name text NOT NULL UNIQUE
     , url text NOT NULL
     );
 
@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS boards
     , pathpart text NOT NULL -- if it's /a/ then the pathpart is a
     , site_id int NOT NULL
     , CONSTRAINT site_fk FOREIGN KEY (site_id) REFERENCES sites (site_id) ON DELETE CASCADE
+    , CONSTRAINT unique_site_board_id_constraint UNIQUE (site_id, pathpart)
     );
 
 CREATE TABLE IF NOT EXISTS threads
@@ -116,6 +117,7 @@ GRANT SELECT ON boards                  TO chan_archive_anon;
 GRANT SELECT ON threads                 TO chan_archive_anon;
 GRANT SELECT ON posts                   TO chan_archive_anon;
 GRANT SELECT ON attachments             TO chan_archive_anon;
+GRANT usage, select ON SEQUENCE sites_site_id_seq TO chan_archive_anon;
 GRANT chan_archive_anon                 TO admin;
 
 CREATE ROLE chan_archiver noinherit login password 'test_password';
@@ -127,6 +129,7 @@ GRANT ALL ON threads                    TO chan_archiver;
 GRANT ALL ON posts                      TO chan_archiver;
 GRANT ALL ON attachments                TO chan_archiver;
 GRANT EXECUTE ON FUNCTION update_post_body_search_index TO chan_archiver;
+GRANT usage, select ON SEQUENCE sites_site_id_seq TO chan_archiver;
 GRANT chan_archiver TO admin;
 
 COMMIT;

@@ -1,31 +1,24 @@
-{-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE DeriveGeneric #-}
-{-# LANGUAGE OverloadedStrings #-}
+-- {-# LANGUAGE DeriveDataTypeable #-}
+-- {-# LANGUAGE DeriveGeneric #-}
+-- {-# LANGUAGE OverloadedStrings #-}
 
 module Main where
 
 import System.Exit
 import Control.Monad (filterM)
-import Data.Aeson (FromJSON, decode)
+import Data.Aeson (decode)
 import qualified Data.ByteString.Lazy as B
 import System.Console.CmdArgs
-import GHC.Generics
 import System.Directory (listDirectory, doesFileExist)
 import System.FilePath ((</>))
 
 import JSONParsing
+import Types
+import qualified DataClient as Client
 
 data SettingsCLI = SettingsCLI
   { jsonFile :: FilePath
   } deriving (Show, Data, Typeable)
-
-data JSONSettings = JSONSettings
-  { postgrest_url :: String
-  , jwt :: String
-  , backup_read_root :: FilePath
-  } deriving (Show, Generic)
-
-instance FromJSON JSONSettings
 
 settingsCLI :: SettingsCLI
 settingsCLI = SettingsCLI
@@ -43,12 +36,36 @@ listCatalogDirectories settings = do
       doesFileExist catalogPath
 
 
+ensureSiteExists :: JSONSettings -> IO ()
+ensureSiteExists settings = do
+    sitesResult <- Client.getAllSites settings
+
+    case sitesResult of
+        Right siteList ->
+            if any (\site -> Client.name site == site_name settings) siteList
+                then putStrLn $ site_name settings ++ " already exists!"
+                else do
+                    putStrLn "leftychan.net does not exist. Creating..."
+                    postResult <- Client.postSite settings
+                    case postResult of
+                        Right _ -> putStrLn $ "Successfully created " ++ site_name settings ++ "."
+                        Left err -> do
+                            putStrLn $ "Failed to create leftychan.net. Error: " ++ show err
+                            exitFailure
+        Left err -> do
+            putStrLn $ "Error fetching sites: " ++ show err
+            exitFailure
+
+
 processBackupDirectory :: JSONSettings -> IO ()
 processBackupDirectory settings = do
     putStrLn "JSON successfully read!"
     print settings  -- print the decoded JSON settings
+    ensureSiteExists settings
     dirs <- listCatalogDirectories settings
-    mapM_ print dirs
+    _ <- Client.getWebsiteBoards settings
+    putStrLn "Boards fetched!"
+    mapM_ putStrLn dirs
     mapM_ processDir dirs
   where
     backupDir :: FilePath
