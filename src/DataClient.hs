@@ -4,7 +4,7 @@
 module DataClient
   ( HttpError(..)
   , get
-  , getWebsiteBoards
+  , getSiteBoards
   , getAllSites
   , postSite
   , post
@@ -13,6 +13,7 @@ module DataClient
 
 import Network.HTTP.Simple
 import qualified Data.ByteString.Lazy as LBS
+import qualified Data.ByteString.Lazy.Char8 as LC8
 import Network.HTTP.Types.Status (statusCode)
 import Control.Exception.Safe (tryAny, SomeException)
 import qualified Data.ByteString.Char8 as C8
@@ -47,17 +48,31 @@ get settings path = do
     handleHttp (httpLBS req)
 
 
-post :: T.JSONSettings -> String -> LBS.ByteString -> IO (Either HttpError LBS.ByteString)
-post settings path payload = do
+post
+  :: T.JSONSettings
+  -> String
+  -> LBS.ByteString
+  -> Bool
+  -> IO (Either HttpError LBS.ByteString)
+post settings path payload return_repr = do
     let requestUrl = T.postgrest_url settings ++ path
     initReq <- parseRequest requestUrl
     let req = setRequestMethod "POST"
-            . setRequestHeader "Authorization" [C8.pack $ "Bearer " ++ T.jwt settings]
-            . setRequestHeader "Content-Type" ["application/json"]
+            . setRequestHeader "Authorization" [ jwt_header ]
+            . setRequestHeader "Content-Type" [ "application/json" ]
             . setRequestBodyLBS payload
+            . prefer
             $ initReq
+
     putStrLn $ "posting to " ++ requestUrl
     handleHttp (httpLBS req)
+
+    where
+      jwt_header = C8.pack $ "Bearer " ++ T.jwt settings
+      prefer =
+        if return_repr
+        then setRequestHeader "Prefer" [ "return=representation" ]
+        else id
 
 
 handleHttp :: IO (Response LBS.ByteString) -> IO (Either HttpError LBS.ByteString)
@@ -72,38 +87,29 @@ handleHttp action = do
         Left e -> return $ Left $ HttpException e
 
 
-getWebsiteBoards :: T.JSONSettings -> IO (Either HttpError [ String ])
-getWebsiteBoards settings = do
-  response <- get settings path
-
-  case response of
-    Right body -> do
-      print body
-      undefined
-    Left err -> do
-      print err
-      return $ Left err
-
+getSiteBoards :: T.JSONSettings -> Int -> IO (Either HttpError [ String ])
+getSiteBoards settings site_id_ = get settings path >>= return . eitherDecodeResponse
   where
-    path = "/boards?select=name,board_id,sites(site_id)&sites.name=eq."
-              ++ (T.site_name settings)
+    path = "/boards?select=name&boards.site_id=eq." ++ show site_id_
 
 
-postSite :: T.JSONSettings -> IO (Either HttpError LBS.ByteString)
-postSite settings = do
-    let payload = encode $ object ["name" .= T.site_name settings, "url" .= T.site_url settings]
-    post settings "/sites" payload
+postSite :: T.JSONSettings -> IO (Either HttpError SiteResponse)
+postSite settings =
+    post settings "/sites" payload True >>= return . eitherDecodeResponse
+
+    where
+      payload = encode $
+            object [ "name" .= T.site_name settings
+                   , "url"  .= T.site_url  settings
+                   ]
 
 
 getAllSites :: T.JSONSettings -> IO (Either HttpError [SiteResponse])
-getAllSites settings = do
-    response <- get settings "/sites"
-    case response of
-        Right x -> do
-          putStrLn "getAllSites response:"
-          print x
+getAllSites settings = get settings "/sites" >>= return . eitherDecodeResponse
 
-          return $ case eitherDecode x :: Either String [SiteResponse] of
-            Right sites -> Right sites
-            Left _ -> Left $ StatusCodeError 500 "Failed to decode JSON"
-        Left err -> return $ Left err
+eitherDecodeResponse :: (FromJSON a) => Either HttpError LBS.ByteString -> Either HttpError a
+eitherDecodeResponse (Left err) = Left err
+eitherDecodeResponse (Right bs) =
+    case eitherDecode bs of
+        Right val -> Right val
+        Left err -> Left $ StatusCodeError 500 $ LC8.pack $ "Failed to decode JSON: " ++ err

@@ -11,6 +11,7 @@ import qualified Data.ByteString.Lazy as B
 import System.Console.CmdArgs
 import System.Directory (listDirectory, doesFileExist)
 import System.FilePath ((</>))
+import Data.List (find)
 
 import JSONParsing
 import Types
@@ -36,22 +37,28 @@ listCatalogDirectories settings = do
       doesFileExist catalogPath
 
 
-ensureSiteExists :: JSONSettings -> IO ()
+ensureSiteExists :: JSONSettings -> IO (Int)
 ensureSiteExists settings = do
     sitesResult <- Client.getAllSites settings
 
     case sitesResult of
         Right siteList ->
-            if any (\site -> Client.name site == site_name settings) siteList
-                then putStrLn $ site_name settings ++ " already exists!"
-                else do
-                    putStrLn "leftychan.net does not exist. Creating..."
-                    postResult <- Client.postSite settings
-                    case postResult of
-                        Right _ -> putStrLn $ "Successfully created " ++ site_name settings ++ "."
-                        Left err -> do
-                            putStrLn $ "Failed to create leftychan.net. Error: " ++ show err
-                            exitFailure
+            case find (\site -> Client.name site == site_name settings) siteList of
+            Just site -> do
+                putStrLn $ site_name settings ++ " already exists!"
+                return $ Client.site_id site
+            Nothing -> do
+                putStrLn "leftychan.net does not exist. Creating..."
+                postResult <- Client.postSite settings
+
+                case postResult of
+                    Right site -> do
+                        putStrLn $ "Successfully created " ++ site_name settings ++ ". " ++ show site
+                        return $ Client.site_id site
+                    Left err -> do
+                        putStrLn $ "Failed to create leftychan.net. Error: " ++ show err
+                        exitFailure
+
         Left err -> do
             putStrLn $ "Error fetching sites: " ++ show err
             exitFailure
@@ -61,9 +68,9 @@ processBackupDirectory :: JSONSettings -> IO ()
 processBackupDirectory settings = do
     putStrLn "JSON successfully read!"
     print settings  -- print the decoded JSON settings
-    ensureSiteExists settings
+    site_id_ <- ensureSiteExists settings
     dirs <- listCatalogDirectories settings
-    _ <- Client.getWebsiteBoards settings
+    _ <- Client.getSiteBoards settings site_id_
     putStrLn "Boards fetched!"
     mapM_ putStrLn dirs
     mapM_ processDir dirs
