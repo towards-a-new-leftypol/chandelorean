@@ -93,6 +93,27 @@ createArchivesForNewBoards settings dirs archived_boards siteid = do
             mapM_ putStrLn (map Boards.pathpart boards)
             return boards
 
+processBoard :: JSONSettings -> Boards.Board -> IO ()
+processBoard settings board = do
+    let catalogPath = backupDir </> (Boards.pathpart board) </> "catalog.json"
+    putStrLn $ "catalog file path: " ++ catalogPath
+
+    result <- parseJSONFile catalogPath
+
+    case result of
+        Right catalogs -> do
+            let threads_on_board = concatMap threads catalogs
+            -- catalogs can be turned into [ Thread ]
+            -- ensureThreads :: ( Board, [ Thread ] ) -> IO ()
+            mapM_ (print . no) threads_on_board
+        Left errMsg    ->
+            putStrLn $ "Failed to parse the JSON file in directory: "
+                ++ (Boards.pathpart board) ++ ". Error: " ++ errMsg
+
+  where
+    backupDir :: FilePath
+    backupDir = backup_read_root settings
+
 
 processBackupDirectory :: JSONSettings -> IO ()
 processBackupDirectory settings = do
@@ -111,26 +132,7 @@ processBackupDirectory settings = do
             let boardnames = map Boards.pathpart archived_boards
             created_boards <- createArchivesForNewBoards settings dirs boardnames site_id_
             let boards :: [ Boards.Board ] = archived_boards ++ created_boards
-            return ()
-
-    mapM_ processDir dirs
-  where
-    backupDir :: FilePath
-    backupDir = backup_read_root settings
-
-    processDir dir = do
-        let catalogPath = backupDir </> dir </> "catalog.json"
-        putStrLn $ "catalog file path: " ++ catalogPath
-
-        result <- parseJSONFile catalogPath
-
-        case result of
-            Right catalogs ->
-                mapM_ (mapM_ (print . no) . threads) catalogs
-            Left errMsg    ->
-                putStrLn $ "Failed to parse the JSON file in directory: "
-                    ++ dir ++ ". Error: " ++ errMsg
-
+            mapM_ (processBoard settings) boards
 
 main :: IO ()
 main = do
