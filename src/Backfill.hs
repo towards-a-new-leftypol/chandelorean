@@ -12,10 +12,13 @@ import System.Console.CmdArgs
 import System.Directory (listDirectory, doesFileExist)
 import System.FilePath ((</>))
 import Data.List (find)
+import qualified Data.Set as Set
 
 import JSONParsing
 import Types
 import qualified DataClient as Client
+import qualified SitesType as Sites
+import qualified BoardsType as Boards
 
 data SettingsCLI = SettingsCLI
   { jsonFile :: FilePath
@@ -43,10 +46,10 @@ ensureSiteExists settings = do
 
     case sitesResult of
         Right siteList ->
-            case find (\site -> Client.name site == site_name settings) siteList of
+            case find (\site -> Sites.name site == site_name settings) siteList of
             Just site -> do
                 putStrLn $ site_name settings ++ " already exists!"
-                return $ Client.site_id site
+                return $ Sites.site_id site
             Nothing -> do
                 putStrLn $ site_name settings ++ " does not exist. Creating..."
                 postResult <- Client.postSite settings
@@ -54,7 +57,7 @@ ensureSiteExists settings = do
                 case postResult of
                     Right (site:_) -> do
                         putStrLn $ "Successfully created " ++ site_name settings ++ ". " ++ show site
-                        return $ Client.site_id site
+                        return $ Sites.site_id site
                     Right [] -> do
                         putStrLn $ "Did not get new site id back from postgrest"
                         exitFailure
@@ -68,6 +71,29 @@ ensureSiteExists settings = do
             exitFailure
 
 
+createArchivesForNewBoards :: JSONSettings -> [ String ] -> [ String ] -> Int -> IO [ Boards.Board ]
+createArchivesForNewBoards settings dirs archived_boards siteid = do
+    let dirsSet = Set.fromList dirs
+    let archivedBoardsSet = Set.fromList archived_boards
+
+    -- Find boards that are in dirs but not in archived_boards
+    let boardsToArchive = dirsSet `Set.difference` archivedBoardsSet
+
+    putStrLn "Creating boards:"
+    mapM_ putStrLn boardsToArchive
+
+    post_result <- Client.postBoards settings (Set.toList boardsToArchive) siteid
+
+    case post_result of
+        Left err -> do
+            putStrLn $ "Error posting boards: " ++ show err
+            exitFailure
+        Right boards -> do
+            putStrLn "Created the following boards:"
+            mapM_ putStrLn (map Boards.pathpart boards)
+            return boards
+
+
 processBackupDirectory :: JSONSettings -> IO ()
 processBackupDirectory settings = do
     putStrLn "JSON successfully read!"
@@ -76,14 +102,17 @@ processBackupDirectory settings = do
     dirs <- listCatalogDirectories settings
     boards_result <- Client.getSiteBoards settings site_id_
     putStrLn "Boards fetched!"
+
     case boards_result of
         Left err -> do
             putStrLn $ "Error fetching boards: " ++ show err
             exitFailure
         Right archived_boards -> do
-            print archived_boards
+            let boardnames = map Boards.pathpart archived_boards
+            created_boards <- createArchivesForNewBoards settings dirs boardnames site_id_
+            let boards :: [ Boards.Board ] = archived_boards ++ created_boards
+            return ()
 
-    mapM_ putStrLn dirs
     mapM_ processDir dirs
   where
     backupDir :: FilePath
@@ -101,6 +130,7 @@ processBackupDirectory settings = do
             Left errMsg    ->
                 putStrLn $ "Failed to parse the JSON file in directory: "
                     ++ dir ++ ". Error: " ++ errMsg
+
 
 main :: IO ()
 main = do

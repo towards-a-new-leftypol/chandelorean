@@ -69,6 +69,8 @@ executable chan-delorean
                       JSONParsing
                       DataClient
                       Types
+                      SitesType
+                      BoardsType
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:

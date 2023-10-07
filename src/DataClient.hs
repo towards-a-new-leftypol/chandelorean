@@ -1,4 +1,3 @@
-{-# LANGUAGE DeriveAnyClass #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module DataClient
@@ -8,7 +7,7 @@ module DataClient
   , getAllSites
   , postSite
   , post
-  , SiteResponse(..)
+  , postBoards
   ) where
 
 import Network.HTTP.Simple
@@ -23,20 +22,17 @@ import Data.Aeson
   , (.=)
   , object
   , encode
+  , Value
   )
-import GHC.Generics
+
 import qualified Types as T
+import qualified SitesType as Sites
+import qualified BoardsType as Boards
 
 data HttpError
     = HttpException SomeException
     | StatusCodeError Int LBS.ByteString
     deriving (Show)
-
-data SiteResponse = SiteResponse
-    { site_id :: Int
-    , name :: String
-    , url :: String
-    } deriving (Show, Generic, FromJSON)
 
 
 get :: T.JSONSettings -> String -> IO (Either HttpError LBS.ByteString)
@@ -87,13 +83,13 @@ handleHttp action = do
         Left e -> return $ Left $ HttpException e
 
 
-getSiteBoards :: T.JSONSettings -> Int -> IO (Either HttpError [ String ])
+getSiteBoards :: T.JSONSettings -> Int -> IO (Either HttpError [ Boards.Board ])
 getSiteBoards settings site_id_ = get settings path >>= return . eitherDecodeResponse
   where
-    path = "/boards?select=name&site_id=eq." ++ show site_id_
+    path = "/boards?select=*&site_id=eq." ++ show site_id_
 
 
-postSite :: T.JSONSettings -> IO (Either HttpError [SiteResponse])
+postSite :: T.JSONSettings -> IO (Either HttpError [ Sites.Site ])
 postSite settings =
     post settings "/sites" payload True >>= return . eitherDecodeResponse
 
@@ -103,9 +99,27 @@ postSite settings =
                    , "url"  .= T.site_url  settings
                    ]
 
+postBoards
+    :: T.JSONSettings
+    -> [] String
+    -> Int
+    -> IO (Either HttpError [ Boards.Board ])
+postBoards settings boards siteid =
+    post settings "/boards" payload True >>= return . eitherDecodeResponse
 
-getAllSites :: T.JSONSettings -> IO (Either HttpError [SiteResponse])
+    where
+      payload = encode $ fmap mk_obj boards
+
+      mk_obj :: String -> Value
+      mk_obj board = object
+          [ "pathpart" .= board
+          , "site_id"  .= siteid
+          ]
+
+
+getAllSites :: T.JSONSettings -> IO (Either HttpError [ Sites.Site ])
 getAllSites settings = get settings "/sites" >>= return . eitherDecodeResponse
+
 
 eitherDecodeResponse :: (FromJSON a) => Either HttpError LBS.ByteString -> Either HttpError a
 eitherDecodeResponse (Left err) = Left err
