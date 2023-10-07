@@ -132,6 +132,7 @@ GRANT ALL ON attachments                TO chan_archiver;
 GRANT EXECUTE ON FUNCTION update_post_body_search_index TO chan_archiver;
 GRANT usage, select ON SEQUENCE sites_site_id_seq TO chan_archiver;
 GRANT usage, select ON SEQUENCE boards_board_id_seq TO chan_archiver;
+GRANT usage, select ON SEQUENCE threads_thread_id_seq TO chan_archiver;
 GRANT chan_archiver TO admin;
 
 COMMIT;

@@ -8,6 +8,8 @@ module DataClient
   , postSite
   , post
   , postBoards
+  , getThreads
+  , postThreads
   ) where
 
 import Network.HTTP.Simple
@@ -15,6 +17,7 @@ import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Lazy.Char8 as LC8
 import Network.HTTP.Types.Status (statusCode)
 import Control.Exception.Safe (tryAny, SomeException)
+import Data.List (intercalate)
 import qualified Data.ByteString.Char8 as C8
 import Data.Aeson
   ( eitherDecode
@@ -28,6 +31,7 @@ import Data.Aeson
 import qualified Types as T
 import qualified SitesType as Sites
 import qualified BoardsType as Boards
+import qualified ThreadType as Threads
 
 data HttpError
     = HttpException SomeException
@@ -86,7 +90,7 @@ handleHttp action = do
 getSiteBoards :: T.JSONSettings -> Int -> IO (Either HttpError [ Boards.Board ])
 getSiteBoards settings site_id_ = get settings path >>= return . eitherDecodeResponse
   where
-    path = "/boards?select=*&site_id=eq." ++ show site_id_
+    path = "/boards?site_id=eq." ++ show site_id_
 
 
 postSite :: T.JSONSettings -> IO (Either HttpError [ Sites.Site ])
@@ -117,9 +121,34 @@ postBoards settings boards siteid =
           ]
 
 
+postThreads
+    :: T.JSONSettings
+    -> [ Threads.Thread ]
+    -> IO (Either HttpError [ Threads.Thread ])
+postThreads settings threads =
+    post settings "/threads" payload True >>= return . eitherDecodeResponse
+
+    where
+      payload = encode $ fmap mk_obj threads
+
+      mk_obj :: Threads.Thread -> Value
+      mk_obj thread = object
+          [ "board_thread_id" .= Threads.board_thread_id thread
+          , "creation_time"   .= Threads.creation_time thread
+          , "board_id"        .= Threads.board_id thread
+          ]
+
+
 getAllSites :: T.JSONSettings -> IO (Either HttpError [ Sites.Site ])
 getAllSites settings = get settings "/sites" >>= return . eitherDecodeResponse
 
+getThreads :: T.JSONSettings -> Int -> [ Int ] -> IO (Either HttpError [ Threads.Thread ])
+getThreads settings board_id board_thread_ids =
+    get settings path >>= return . eitherDecodeResponse
+
+    where
+        path = "/threads?board_thread_id=in.(" ++ ids ++ ")&board_id=eq." ++ show board_id
+        ids :: String = intercalate "," $ map show board_thread_ids
 
 eitherDecodeResponse :: (FromJSON a) => Either HttpError LBS.ByteString -> Either HttpError a
 eitherDecodeResponse (Left err) = Left err

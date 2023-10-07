@@ -13,12 +13,16 @@ import System.Directory (listDirectory, doesFileExist)
 import System.FilePath ((</>))
 import Data.List (find)
 import qualified Data.Set as Set
+import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
+import Data.Time.Clock (UTCTime)
+
 
 import JSONParsing
 import Types
 import qualified DataClient as Client
 import qualified SitesType as Sites
 import qualified BoardsType as Boards
+import qualified ThreadType as Threads
 
 data SettingsCLI = SettingsCLI
   { jsonFile :: FilePath
@@ -32,9 +36,13 @@ settingsCLI = SettingsCLI
 
 listCatalogDirectories :: JSONSettings -> IO [FilePath]
 listCatalogDirectories settings = do
-    dirs <- listDirectory (backup_read_root settings)
-    filterM hasCatalog dirs
+    allDirs <- listDirectory (backup_read_root settings)
+    let filteredDirs = filter (`notElem` excludedDirs) allDirs
+    filterM hasCatalog filteredDirs
+
   where
+    excludedDirs = ["sfw", "alt", "overboard"]
+
     hasCatalog dir = do
       let catalogPath = (backup_read_root settings) </> dir </> "catalog.json"
       doesFileExist catalogPath
@@ -71,7 +79,12 @@ ensureSiteExists settings = do
             exitFailure
 
 
-createArchivesForNewBoards :: JSONSettings -> [ String ] -> [ String ] -> Int -> IO [ Boards.Board ]
+createArchivesForNewBoards
+    :: JSONSettings ->
+    [ String ] ->
+    [ String ] ->
+    Int ->
+    IO [ Boards.Board ]
 createArchivesForNewBoards settings dirs archived_boards siteid = do
     let dirsSet = Set.fromList dirs
     let archivedBoardsSet = Set.fromList archived_boards
@@ -93,6 +106,64 @@ createArchivesForNewBoards settings dirs archived_boards siteid = do
             mapM_ putStrLn (map Boards.pathpart boards)
             return boards
 
+
+apiThreadToArchiveThread :: Int -> Thread -> Threads.Thread
+apiThreadToArchiveThread board_id_ json_thread =
+    Threads.Thread
+    { Threads.thread_id       = undefined
+    , Threads.board_thread_id = no json_thread
+    , Threads.creation_time   = epochToUTCTime $ fromIntegral (time json_thread)
+    , Threads.board_id        = board_id_
+    }
+
+epochToUTCTime :: Int -> UTCTime
+epochToUTCTime = posixSecondsToUTCTime . realToFrac
+
+
+createArchivesForNewThreads
+    :: JSONSettings
+    -> [ Thread ]
+    -> [ Threads.Thread ]
+    -> Boards.Board
+    -> IO [ Threads.Thread ]
+createArchivesForNewThreads settings all_threads archived_threads board = do
+    putStrLn $ "Creating " ++ (show $ length threads_to_create) ++ " threads."
+    threads_result <- Client.postThreads settings (map (apiThreadToArchiveThread board_id) threads_to_create)
+
+    case threads_result of
+        Left err -> do
+            putStrLn $ "Error creating threads: " ++ show err
+            exitFailure
+        Right new_threads -> return new_threads
+
+    where
+        board_id :: Int = Boards.board_id board
+
+        archived_board_thread_ids :: Set.Set Int
+        archived_board_thread_ids =
+            Set.fromList $ map Threads.board_thread_id archived_threads
+
+        threads_to_create :: [ Thread ]
+        threads_to_create =
+            filter
+                ((`Set.notMember` archived_board_thread_ids) . no)
+                all_threads
+
+
+ensureThreads :: JSONSettings -> Boards.Board -> [ Thread ] -> IO [ Threads.Thread ]
+ensureThreads settings board all_threads = do
+    threads_result <- Client.getThreads settings (Boards.board_id board) (map no all_threads)
+
+    case threads_result of
+        Left err -> do
+            putStrLn $ "Error fetching threads: " ++ show err
+            exitFailure
+        Right archived_threads -> do
+            putStrLn $ (show $ length archived_threads)++ " threads already exist."
+            new_threads <- createArchivesForNewThreads settings all_threads archived_threads board
+            return $ archived_threads ++ new_threads
+
+
 processBoard :: JSONSettings -> Boards.Board -> IO ()
 processBoard settings board = do
     let catalogPath = backupDir </> (Boards.pathpart board) </> "catalog.json"
@@ -103,9 +174,12 @@ processBoard settings board = do
     case result of
         Right catalogs -> do
             let threads_on_board = concatMap threads catalogs
+
+            new_threads <- ensureThreads settings board threads_on_board
             -- catalogs can be turned into [ Thread ]
             -- ensureThreads :: ( Board, [ Thread ] ) -> IO ()
-            mapM_ (print . no) threads_on_board
+            -- mapM_ (print . no) threads_on_board
+            return ()
         Left errMsg    ->
             putStrLn $ "Failed to parse the JSON file in directory: "
                 ++ (Boards.pathpart board) ++ ". Error: " ++ errMsg

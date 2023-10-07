@@ -71,6 +71,7 @@ executable chan-delorean
                       Types
                       SitesType
                       BoardsType
+                      ThreadType
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
@@ -86,7 +87,8 @@ executable chan-delorean
                       text,
                       http-conduit,
                       safe-exceptions,
-                      http-types
+                      http-types,
+                      time
 
     -- Directories containing source files.
     hs-source-dirs:   src
