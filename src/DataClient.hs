@@ -65,6 +65,7 @@ post settings path payload return_repr = do
             $ initReq
 
     putStrLn $ "posting to " ++ requestUrl
+    -- putStrLn $ "Payload: " ++ (LC8.unpack payload)
     handleHttp (httpLBS req)
 
     where

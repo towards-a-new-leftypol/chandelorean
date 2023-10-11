@@ -72,6 +72,8 @@ executable chan-delorean
                       SitesType
                       BoardsType
                       ThreadType
+                      JSONPost
+                      JSONCommonTypes
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:

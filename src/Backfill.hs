@@ -1,7 +1,3 @@
--- {-# LANGUAGE DeriveDataTypeable #-}
--- {-# LANGUAGE DeriveGeneric #-}
--- {-# LANGUAGE OverloadedStrings #-}
-
 module Main where
 
 import System.Exit
@@ -23,6 +19,7 @@ import qualified DataClient as Client
 import qualified SitesType as Sites
 import qualified BoardsType as Boards
 import qualified ThreadType as Threads
+import qualified JSONPost as JSONPosts
 
 data SettingsCLI = SettingsCLI
   { jsonFile :: FilePath
@@ -163,22 +160,49 @@ ensureThreads settings board all_threads = do
             new_threads <- createArchivesForNewThreads settings all_threads archived_threads board
             return $ archived_threads ++ new_threads
 
+readPosts :: JSONSettings -> Boards.Board -> Threads.Thread -> IO [ JSONPosts.Post ]
+readPosts settings board thread = do
+    result <- parsePosts thread_filename
+
+    case result of
+        Left err -> do
+            putStrLn $ "Failed to parse the JSON file " ++ thread_filename ++ " error: " ++ err
+            exitFailure
+        Right posts_wrapper -> return $ JSONPosts.posts posts_wrapper
+
+    where
+        thread_filename :: FilePath 
+        thread_filename = backupDir </> "res" </> ((show $ Threads.board_thread_id thread) ++ ".json")
+
+        backupDir :: FilePath
+        backupDir = backup_read_root settings </> (Boards.pathpart board)
+
 
 processBoard :: JSONSettings -> Boards.Board -> IO ()
 processBoard settings board = do
-    let catalogPath = backupDir </> (Boards.pathpart board) </> "catalog.json"
+    let catalogPath = backupDir </> "catalog.json"
     putStrLn $ "catalog file path: " ++ catalogPath
 
-    result <- parseJSONFile catalogPath
+    result <- parseJSONCatalog catalogPath
 
     case result of
         Right catalogs -> do
             let threads_on_board = concatMap threads catalogs
 
-            new_threads <- ensureThreads settings board threads_on_board
-            -- catalogs can be turned into [ Thread ]
-            -- ensureThreads :: ( Board, [ Thread ] ) -> IO ()
-            -- mapM_ (print . no) threads_on_board
+            all_threads_for_board :: [ Threads.Thread ] <- ensureThreads settings board threads_on_board
+            -- f :: Threads.Thread -> [ Posts.Post ]
+            -- for each thread we have to call a function that
+            --  - reads the thread under the board directory:
+            --      - t = backupDir </> "res' </> ((show $ no thread) ++ ".json")
+            --
+            -- do we want an ensurethreads?
+            --      - then for each thread, grab the posts from json and see if they exist
+            --      - this might have to be done 350 times per board
+            --
+            -- So we need a function (Threads.Thread, [ Posts.Post ]) -> ??? [ new Post type? ]
+            --      - why?
+            --          - well because the new post type will have a thread_id, which is known to be unique
+            --          - so we need to query the db for this same (thread_id (from Thread), no (from Post))
             return ()
         Left errMsg    ->
             putStrLn $ "Failed to parse the JSON file in directory: "
@@ -186,7 +210,7 @@ processBoard settings board = do
 
   where
     backupDir :: FilePath
-    backupDir = backup_read_root settings
+    backupDir = backup_read_root settings </> (Boards.pathpart board)
 
 
 processBackupDirectory :: JSONSettings -> IO ()
@@ -207,6 +231,7 @@ processBackupDirectory settings = do
             created_boards <- createArchivesForNewBoards settings dirs boardnames site_id_
             let boards :: [ Boards.Board ] = archived_boards ++ created_boards
             mapM_ (processBoard settings) boards
+
 
 main :: IO ()
 main = do

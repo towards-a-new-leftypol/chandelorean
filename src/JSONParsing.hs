@@ -1,18 +1,22 @@
 module JSONParsing
-    ( Thread(..)
-    , File(..)
-    , Catalog(..)
-    , parseJSONFile
+    ( Thread (..)
+    , Catalog (..)
+    , parseJSONCatalog
+    , parsePosts
     ) where
 
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 
+import Data.Text (Text)
 import Data.Aeson
 import GHC.Generics
 import qualified Data.ByteString.Lazy as B
 import qualified Data.Text as T
 import Data.Aeson.Types (typeMismatch)
+
+import qualified JSONPost as Post
+import qualified JSONCommonTypes as J
 
 data Cyclical = Cyclical Int deriving (Show, Generic)
 
@@ -27,10 +31,10 @@ instance FromJSON Cyclical where
 
 data Thread = Thread
   { no            :: Int
-  , sub           :: Maybe String
-  , com           :: Maybe String
-  , name          :: Maybe String
-  , capcode       :: Maybe String
+  , sub           :: Maybe Text
+  , com           :: Maybe Text
+  , name          :: Maybe Text
+  , capcode       :: Maybe Text
   , time          :: Int
   , omitted_posts :: Maybe Int
   , omitted_images:: Maybe Int
@@ -40,40 +44,25 @@ data Thread = Thread
   , locked        :: Maybe Int
   , cyclical      :: Maybe Cyclical
   , last_modified :: Int
-  , board         :: String
-  , files         :: Maybe [File]
+  , board         :: Text
+  , files         :: Maybe [J.File]
   , resto         :: Int
   , unique_ips    :: Maybe Int
   } deriving (Show, Generic)
 
-data File = File
-  { id         :: String
-  , mime       :: String
-  , ext        :: String
-  , h          :: Maybe Int
-  , w          :: Maybe Int
-  , fsize      :: Int
-  , filename   :: String
-  , spoiler    :: Maybe Bool
-  , md5        :: String
-  , file_path  :: String
-  , thumb_path :: String
-  } deriving (Show, Generic)
+instance FromJSON Thread
+--instance ToJSON Thread
 
 data Catalog = Catalog
   { threads :: [Thread]
   , page    :: Int
   } deriving (Show, Generic)
 
-instance FromJSON Thread
---instance ToJSON Thread
-instance FromJSON File
---instance ToJSON File
 instance FromJSON Catalog
 --instance ToJSON Catalog
 
+parseJSONCatalog :: FilePath -> IO (Either String [Catalog])
+parseJSONCatalog path = B.readFile path >>= return . eitherDecode
 
-parseJSONFile :: FilePath -> IO (Either String [Catalog])
-parseJSONFile path = do
-    jsonData <- B.readFile path
-    return $ eitherDecode jsonData
+parsePosts :: FilePath -> IO (Either String Post.PostWrapper)
+parsePosts path = B.readFile path >>= return . eitherDecode
