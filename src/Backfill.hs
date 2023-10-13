@@ -172,7 +172,7 @@ readPosts settings board thread = do
     case result of
         Left err -> do
             putStrLn $ "Failed to parse the JSON file " ++ thread_filename ++ " error: " ++ err
-            exitFailure
+            return (thread, [])
         Right posts_wrapper -> return $ (thread, JSONPosts.posts posts_wrapper)
 
     where
