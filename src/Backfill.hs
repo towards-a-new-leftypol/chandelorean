@@ -9,6 +9,7 @@ import System.Directory (listDirectory, doesFileExist)
 import System.FilePath ((</>))
 import Data.List (find)
 import qualified Data.Set as Set
+import Data.Set (Set)
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import Data.Time.Clock (UTCTime)
 
@@ -31,7 +32,7 @@ settingsCLI = SettingsCLI
     } &= summary "Backfill v0.0.2"
 
 
-listCatalogDirectories :: JSONSettings -> IO [FilePath]
+listCatalogDirectories :: JSONSettings -> IO [ FilePath ]
 listCatalogDirectories settings = do
     allDirs <- listDirectory (backup_read_root settings)
     let filteredDirs = filter (`notElem` excludedDirs) allDirs
@@ -78,12 +79,11 @@ ensureSiteExists settings = do
 
 createArchivesForNewBoards
     :: JSONSettings ->
-    [ String ] ->
+    Set String ->
     [ String ] ->
     Int ->
     IO [ Boards.Board ]
-createArchivesForNewBoards settings dirs archived_boards siteid = do
-    let dirsSet = Set.fromList dirs
+createArchivesForNewBoards settings dirsSet archived_boards siteid = do
     let archivedBoardsSet = Set.fromList archived_boards
 
     -- Find boards that are in dirs but not in archived_boards
@@ -278,6 +278,7 @@ processBackupDirectory settings = do
     print settings  -- print the decoded JSON settings
     site_id_ <- ensureSiteExists settings
     dirs <- listCatalogDirectories settings
+    let dirsSet = Set.fromList dirs
     boards_result <- Client.getSiteBoards settings site_id_
     putStrLn "Boards fetched!"
 
@@ -287,9 +288,10 @@ processBackupDirectory settings = do
             exitFailure
         Right archived_boards -> do
             let boardnames = map Boards.pathpart archived_boards
-            created_boards <- createArchivesForNewBoards settings dirs boardnames site_id_
+            created_boards <- createArchivesForNewBoards settings dirsSet boardnames site_id_
             let boards :: [ Boards.Board ] = archived_boards ++ created_boards
-            mapM_ (processBoard settings) boards
+            let boards_we_have_data_for = filter (\board -> Set.member (Boards.pathpart board) dirsSet) boards
+            mapM_ (processBoard settings) boards_we_have_data_for
 
 
 main :: IO ()
