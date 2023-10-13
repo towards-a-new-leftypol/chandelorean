@@ -25,9 +25,9 @@ fi
 
 PROG="./dist-newstyle/build/x86_64-linux/ghc-9.2.8/chan-delorean-0.0.1/x/chan-delorean/build/chan-delorean/chan-delorean"
 
-# Ensure your_program is compiled and available
+# Ensure chan-delorean is compiled and available
 if ! command -v $PROG >/dev/null; then
-    echo "Error: your_program is not compiled or not in the PATH!"
+    echo "Error: chan-delorean is not compiled or not in the PATH!"
     exit 1
 fi
 
