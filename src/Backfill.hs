@@ -226,7 +226,7 @@ processBoard settings board = do
 
     case result of
         Right catalogs -> do
-            let threads_on_board = concatMap threads catalogs
+            let threads_on_board = concatMap ((maybe [] id) . threads) catalogs
 
             all_threads_for_board :: [ Threads.Thread ] <- ensureThreads settings board threads_on_board
 

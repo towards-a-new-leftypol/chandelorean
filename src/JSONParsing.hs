@@ -42,7 +42,7 @@ instance FromJSON Thread
 --instance ToJSON Thread
 
 data Catalog = Catalog
-  { threads :: [Thread]
+  { threads :: Maybe [Thread]
   , page    :: Int
   } deriving (Show, Generic)
 

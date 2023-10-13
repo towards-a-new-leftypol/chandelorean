@@ -37,7 +37,7 @@ while IFS= read -r BACKUP_PATH; do
     sed -e 's|\("backup_read_root": \)".*"|\1"'"$BACKUP_PATH"'"|' "$SETTINGS_FILE" > "temp_$SETTINGS_FILE"
     
     # Run the Haskell program with the updated settings file
-    $PROG +RTS -N2 -RTS "temp_$SETTINGS_FILE"
+    time $PROG +RTS -N2 -RTS "temp_$SETTINGS_FILE"
 done < "$PATHS_FILE"
 
 # Optionally, remove the temporary settings file
