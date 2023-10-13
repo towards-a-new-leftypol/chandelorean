@@ -12,14 +12,14 @@ import qualified Data.Set as Set
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import Data.Time.Clock (UTCTime)
 
-
 import JSONParsing
-import Types
+import JSONSettings
+import qualified JSONPost   as JSONPosts
 import qualified DataClient as Client
-import qualified SitesType as Sites
+import qualified SitesType  as Sites
 import qualified BoardsType as Boards
 import qualified ThreadType as Threads
-import qualified JSONPost as JSONPosts
+import qualified PostsType  as Posts
 
 data SettingsCLI = SettingsCLI
   { jsonFile :: FilePath
@@ -28,7 +28,7 @@ data SettingsCLI = SettingsCLI
 settingsCLI :: SettingsCLI
 settingsCLI = SettingsCLI
     { jsonFile = def &= args &= typ "settings-jsonfile-path"
-    } &= summary "Backfill v0.0.1"
+    } &= summary "Backfill v0.0.2"
 
 
 listCatalogDirectories :: JSONSettings -> IO [FilePath]
@@ -160,7 +160,12 @@ ensureThreads settings board all_threads = do
             new_threads <- createArchivesForNewThreads settings all_threads archived_threads board
             return $ archived_threads ++ new_threads
 
-readPosts :: JSONSettings -> Boards.Board -> Threads.Thread -> IO [ JSONPosts.Post ]
+
+readPosts
+    :: JSONSettings
+    -> Boards.Board
+    -> Threads.Thread
+    -> IO (Threads.Thread, [ JSONPosts.Post ])
 readPosts settings board thread = do
     result <- parsePosts thread_filename
 
@@ -168,14 +173,48 @@ readPosts settings board thread = do
         Left err -> do
             putStrLn $ "Failed to parse the JSON file " ++ thread_filename ++ " error: " ++ err
             exitFailure
-        Right posts_wrapper -> return $ JSONPosts.posts posts_wrapper
+        Right posts_wrapper -> return $ (thread, JSONPosts.posts posts_wrapper)
 
     where
-        thread_filename :: FilePath 
+        thread_filename :: FilePath
         thread_filename = backupDir </> "res" </> ((show $ Threads.board_thread_id thread) ++ ".json")
 
         backupDir :: FilePath
         backupDir = backup_read_root settings </> (Boards.pathpart board)
+
+
+ensurePosts
+    :: JSONSettings
+    -> Boards.Board
+    -> [(Threads.Thread, [ Posts.Post ])]
+    -> IO [(Threads.Thread, [ Posts.Post ])]
+ensurePosts = undefined
+
+
+-- Convert Post to DbPost
+apiPostToArchivePost :: Threads.Thread -> JSONPosts.Post -> Posts.Post
+apiPostToArchivePost thread post = 
+    Posts.Post
+    { Posts.post_id         = Nothing
+    , Posts.board_post_id   = JSONPosts.no post
+    , Posts.creation_time   = posixSecondsToUTCTime (realToFrac $ JSONPosts.time post)
+    , Posts.body            = JSONPosts.com post
+    , Posts.thread_id       = Threads.thread_id thread
+    }
+
+-- | A version of 'concatMap' that works with a monadic predicate.
+-- Stolen from package extra Control.Monad.Extra
+concatMapM :: Monad m => (a -> m [b]) -> [a] -> m [b]
+{-# INLINE concatMapM #-}
+concatMapM op = foldr f (pure [])
+    where f x xs = do
+            x_ <- op x
+
+            if null x_
+            then xs
+            else do
+                xs_ <- xs
+                pure $ x_ ++ xs_
 
 
 processBoard :: JSONSettings -> Boards.Board -> IO ()
@@ -190,6 +229,26 @@ processBoard settings board = do
             let threads_on_board = concatMap threads catalogs
 
             all_threads_for_board :: [ Threads.Thread ] <- ensureThreads settings board threads_on_board
+
+            all_posts_on_board :: [(Threads.Thread, [ JSONPosts.Post ])] <- mapM (readPosts settings board) all_threads_for_board
+
+            -- putStrLn $ "Number of posts on /" ++ (Boards.pathpart board) ++ "/ " ++ (show $ length all_posts_on_board)
+            posts_result <- Client.postPosts settings (concatMap (\(t, posts) -> map (apiPostToArchivePost t) posts) all_posts_on_board) 
+
+            -- TODO: why doesn't it insert posts for threads that already exist? we can have new posts!
+
+            case posts_result of
+                Left err -> print err
+                Right new_ids -> do
+                    putStrLn "Sum of post_ids:"
+                    print $ sum $ map Client.post_id new_ids
+                    putStrLn "Sum of board_post_ids:"
+                    print $ sum $ map Client.board_post_id new_ids
+
+            -- max:   18,645
+            -- min:   147
+            -- total: 191,628
+            --
             -- f :: Threads.Thread -> [ Posts.Post ]
             -- for each thread we have to call a function that
             --  - reads the thread under the board directory:

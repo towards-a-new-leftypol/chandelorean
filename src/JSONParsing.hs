@@ -9,25 +9,12 @@ module JSONParsing
 {-# LANGUAGE OverloadedStrings #-}
 
 import Data.Text (Text)
-import Data.Aeson
 import GHC.Generics
 import qualified Data.ByteString.Lazy as B
-import qualified Data.Text as T
-import Data.Aeson.Types (typeMismatch)
+import Data.Aeson
 
 import qualified JSONPost as Post
 import qualified JSONCommonTypes as J
-
-data Cyclical = Cyclical Int deriving (Show, Generic)
-
-instance FromJSON Cyclical where
-    parseJSON (Number n) = return $ Cyclical (floor n)
-    parseJSON (String s) =
-      case reads (T.unpack s) :: [(Int, String)] of
-      [(n, "")] -> return $ Cyclical n
-      _         -> typeMismatch "Int or String containing Int" (String s)
-
-    parseJSON invalid    = typeMismatch "Int or String" invalid
 
 data Thread = Thread
   { no            :: Int
@@ -42,7 +29,7 @@ data Thread = Thread
   , images        :: Maybe Int
   , sticky        :: Maybe Int
   , locked        :: Maybe Int
-  , cyclical      :: Maybe Cyclical
+  , cyclical      :: Maybe J.Cyclical
   , last_modified :: Int
   , board         :: Text
   , files         :: Maybe [J.File]

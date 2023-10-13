@@ -68,12 +68,13 @@ executable chan-delorean
     other-modules:
                       JSONParsing
                       DataClient
-                      Types
+                      JSONSettings
                       SitesType
                       BoardsType
                       ThreadType
                       JSONPost
                       JSONCommonTypes
+                      PostsType
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:

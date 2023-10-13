@@ -4,12 +4,13 @@ module JSONPost
   ) where
 
 import Data.Text (Text)
+import Data.Int (Int64)
 import Data.Aeson (FromJSON)
 import GHC.Generics
 import qualified JSONCommonTypes as J
 
 data Post = Post
-    { no             :: Int
+    { no             :: Int64
     , com            :: Maybe Text
     , name           :: Maybe Text
     , time           :: Int
@@ -17,7 +18,7 @@ data Post = Post
     , omitted_images :: Maybe Int
     , sticky         :: Maybe Int
     , locked         :: Maybe Int
-    , cyclical       :: Maybe Int
+    , cyclical       :: Maybe J.Cyclical
     , last_modified  :: Int
     , board          :: String
     , files          :: Maybe [J.File]

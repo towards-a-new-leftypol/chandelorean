@@ -110,6 +110,69 @@ CREATE INDEX attachments_post_id_idx        ON attachments (post_id);
 CREATE INDEX attachments_md5_hash_idx       ON attachments (md5_hash);
 CREATE INDEX attachments_phash_bktree_index ON attachments USING spgist (phash bktree_ops);
 
+
+/*
+ * Function Definitions
+ */
+
+/*
+CREATE OR REPLACE FUNCTION insert_posts_and_return_ids(new_posts posts[])
+RETURNS TABLE (post_id bigint, board_post_id bigint) AS $$
+WITH inserted AS (
+    INSERT INTO posts (board_post_id, creation_time, body, thread_id)
+    SELECT np.board_post_id, np.creation_time, np.body, np.thread_id
+    FROM unnest(new_posts) AS np
+    ON CONFLICT (thread_id, board_post_id) DO NOTHING
+    RETURNING post_id, board_post_id
+),
+selected AS (
+    SELECT post_id, board_post_id
+    FROM posts
+    WHERE (thread_id, board_post_id) IN (SELECT thread_id, board_post_id FROM unnest(new_posts))
+)
+SELECT * FROM inserted
+UNION ALL
+SELECT * FROM selected WHERE (post_id, board_post_id) NOT IN (SELECT post_id, board_post_id FROM inserted);
+$$ LANGUAGE sql;
+
+-- 3m37s for clean db
+-- 1m34s for full db (nothing inserted)
+
+*/
+
+CREATE OR REPLACE FUNCTION insert_posts_and_return_ids(new_posts posts[])
+RETURNS TABLE (post_id bigint, board_post_id bigint, thread_id bigint) AS $$
+WITH 
+selected AS (
+    SELECT post_id, board_post_id, thread_id
+    FROM posts
+    WHERE (thread_id, board_post_id) IN (SELECT thread_id, board_post_id FROM unnest(new_posts))
+),
+to_insert AS (
+    SELECT np.*
+    FROM unnest(new_posts) AS np
+    LEFT OUTER JOIN selected s ON np.thread_id = s.thread_id AND np.board_post_id = s.board_post_id
+    WHERE s.post_id IS NULL
+),
+inserted AS (
+    INSERT INTO posts (board_post_id, creation_time, body, thread_id)
+    SELECT board_post_id, creation_time, body, thread_id
+    FROM to_insert
+    RETURNING post_id, board_post_id, thread_id
+)
+SELECT * FROM inserted
+UNION ALL
+SELECT * FROM selected;
+$$ LANGUAGE sql;
+
+-- 1:51 for clean db (this varies a lot)
+-- 1:21 for full db (nothing inserted)
+
+
+/*
+ * Permissions
+ */
+
 CREATE ROLE chan_archive_anon nologin;
 GRANT CONNECT ON DATABASE chan_archives TO chan_archive_anon;
 GRANT SELECT ON sites                   TO chan_archive_anon;
@@ -130,9 +193,12 @@ GRANT ALL ON threads                    TO chan_archiver;
 GRANT ALL ON posts                      TO chan_archiver;
 GRANT ALL ON attachments                TO chan_archiver;
 GRANT EXECUTE ON FUNCTION update_post_body_search_index TO chan_archiver;
-GRANT usage, select ON SEQUENCE sites_site_id_seq TO chan_archiver;
-GRANT usage, select ON SEQUENCE boards_board_id_seq TO chan_archiver;
-GRANT usage, select ON SEQUENCE threads_thread_id_seq TO chan_archiver;
+GRANT EXECUTE ON FUNCTION insert_posts_and_return_ids   TO chan_archiver;
+GRANT usage, select ON SEQUENCE sites_site_id_seq       TO chan_archiver;
+GRANT usage, select ON SEQUENCE boards_board_id_seq     TO chan_archiver;
+GRANT usage, select ON SEQUENCE threads_thread_id_seq   TO chan_archiver;
+GRANT usage, select ON SEQUENCE posts_post_id_seq       TO chan_archiver;
+
 GRANT chan_archiver TO admin;
 
 COMMIT;

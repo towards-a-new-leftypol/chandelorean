@@ -9,7 +9,7 @@ let
       }:
       mkDerivation {
         pname = "chan-delorean";
-        version = "0.0.0.0";
+        version = "0.0.2";
         src = ./.;
         isLibrary = false;
         isExecutable = true;

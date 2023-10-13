@@ -1,7 +1,9 @@
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DeriveAnyClass #-}
 
 module DataClient
   ( HttpError(..)
+  , PostId (..)
   , get
   , getSiteBoards
   , getAllSites
@@ -10,8 +12,10 @@ module DataClient
   , postBoards
   , getThreads
   , postThreads
+  , postPosts
   ) where
 
+import Data.Int (Int64)
 import Network.HTTP.Simple
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Lazy.Char8 as LC8
@@ -27,17 +31,24 @@ import Data.Aeson
   , encode
   , Value
   )
+import GHC.Generics
 
-import qualified Types as T
+import qualified JSONSettings as T
 import qualified SitesType as Sites
 import qualified BoardsType as Boards
 import qualified ThreadType as Threads
+import qualified PostsType  as Posts
 
 data HttpError
     = HttpException SomeException
     | StatusCodeError Int LBS.ByteString
     deriving (Show)
 
+data PostId = PostId
+    { post_id :: Int64
+    , board_post_id :: Int64
+    , thread_id :: Int64
+    } deriving (Show, Generic, FromJSON)
 
 get :: T.JSONSettings -> String -> IO (Either HttpError LBS.ByteString)
 get settings path = do
@@ -150,6 +161,17 @@ getThreads settings board_id board_thread_ids =
     where
         path = "/threads?board_thread_id=in.(" ++ ids ++ ")&board_id=eq." ++ show board_id
         ids :: String = intercalate "," $ map show board_thread_ids
+
+postPosts
+    :: T.JSONSettings
+    -> [ Posts.Post ]
+    -> IO (Either HttpError [ PostId ])
+postPosts settings posts =
+    post settings "/rpc/insert_posts_and_return_ids" payload True >>= return . eitherDecodeResponse
+
+    where
+      payload = encode $ object [ "new_posts" .= posts ]
+
 
 eitherDecodeResponse :: (FromJSON a) => Either HttpError LBS.ByteString -> Either HttpError a
 eitherDecodeResponse (Left err) = Left err
