@@ -72,9 +72,7 @@ CREATE INDEX posts_creation_time_idx ON posts (creation_time);
 CREATE INDEX posts_body_search_idx   ON posts USING GIN (body_search_index);
 CREATE INDEX posts_thread_id_idx     ON posts (thread_id);
 CREATE INDEX posts_board_post_id_idx ON posts (board_post_id);
-
--- This is to optimize joins on thread_id and filtering/sorting by creation_time in 'posts' table.
-CREATE INDEX posts_thread_id_creation_time_idx ON posts (thread_id, creation_time);
+CREATE INDEX posts_thread_id_creation_time_idx ON posts (creation_time, thread_id);
 
 CREATE OR REPLACE FUNCTION update_post_body_search_index() RETURNS trigger AS $$
 BEGIN
