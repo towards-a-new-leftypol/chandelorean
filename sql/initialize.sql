@@ -16,6 +16,9 @@ DROP TABLE IF EXISTS threads CASCADE;
 DROP TABLE IF EXISTS posts CASCADE;
 DROP TABLE IF EXISTS attachments CASCADE;
 DROP FUNCTION IF EXISTS update_post_body_search_index;
+DROP FUNCTION IF EXISTS fetch_top_threads;
+DROP FUNCTION IF EXISTS fetch_catalog;
+
 
 -- It won't let us drop roles otherwise and the IFs are to keep this script idempotent.
 DO
@@ -73,6 +76,7 @@ CREATE INDEX posts_body_search_idx   ON posts USING GIN (body_search_index);
 CREATE INDEX posts_thread_id_idx     ON posts (thread_id);
 CREATE INDEX posts_board_post_id_idx ON posts (board_post_id);
 CREATE INDEX posts_thread_id_creation_time_idx ON posts (creation_time, thread_id);
+--CREATE INDEX posts_thread_id_board_post_id_idx ON posts (thread_id, board_post_id);
 
 CREATE OR REPLACE FUNCTION update_post_body_search_index() RETURNS trigger AS $$
 BEGIN
@@ -167,6 +171,89 @@ $$ LANGUAGE sql;
 -- 1:21 for full db (nothing inserted)
 
 
+CREATE OR REPLACE FUNCTION fetch_top_threads(
+    p_start_time TIMESTAMPTZ,
+    lookback INT DEFAULT 10000
+)
+RETURNS TABLE(bump_time TIMESTAMPTZ, post_count BIGINT, thread_id BIGINT, where_to_leave_off TIMESTAMPTZ)
+LANGUAGE sql
+AS $$
+    SELECT 
+        max(creation_time) as bump_time, 
+        count(*),
+        thread_id, 
+        min(creation_time) as where_to_leave_off
+    FROM
+    (
+        SELECT thread_id, creation_time
+        FROM posts
+        WHERE creation_time < p_start_time
+        ORDER BY creation_time DESC 
+        LIMIT LEAST(lookback, 250000)  -- capping the lookback to 250k
+    ) as t
+    GROUP BY thread_id
+    ORDER BY bump_time DESC;
+$$;
+
+
+CREATE OR REPLACE FUNCTION fetch_catalog(max_time timestamptz, max_row_read int DEFAULT 10000)
+RETURNS TABLE (
+    post_count bigint,
+    estimated_post_count bigint,
+    post_id bigint,
+    board_post_id bigint,
+    creation_time timestamptz,
+    body text,
+    thread_id bigint,
+    board_thread_id bigint,
+    pathpart text,
+    name text
+) AS $$
+    WITH
+        top AS
+        (
+            SELECT * FROM fetch_top_threads(max_time, max_row_read) AS top
+        ),
+        tall_posts AS
+        (
+            SELECT
+                top.post_count as estimated_post_count,
+                posts.post_id,
+                posts.board_post_id,
+                posts.creation_time,
+                posts.body,
+                posts.thread_id
+            FROM top
+            JOIN posts ON top.thread_id = posts.thread_id
+            WHERE creation_time < max_time
+        ),
+        op_posts AS
+        (
+            SELECT DISTINCT ON (t.thread_id)
+                *
+            FROM tall_posts t
+            ORDER BY t.thread_id, t.board_post_id
+        ),
+        post_counts AS
+        (
+            SELECT thread_id, count(*) as post_count FROM
+            tall_posts
+            GROUP BY thread_id
+        )
+    SELECT
+        post_counts.post_count,
+        op_posts.*,
+        threads.board_thread_id,
+        boards.pathpart,
+        sites."name"
+    FROM op_posts
+    JOIN post_counts ON op_posts.thread_id = post_counts.thread_id
+    JOIN threads ON op_posts.thread_id = threads.thread_id
+    JOIN boards ON threads.board_id = boards.board_id
+    JOIN sites ON sites.site_id = boards.site_id;
+$$ LANGUAGE sql;
+
+
 /*
  * Permissions
  */
@@ -192,6 +279,8 @@ GRANT ALL ON posts                      TO chan_archiver;
 GRANT ALL ON attachments                TO chan_archiver;
 GRANT EXECUTE ON FUNCTION update_post_body_search_index TO chan_archiver;
 GRANT EXECUTE ON FUNCTION insert_posts_and_return_ids   TO chan_archiver;
+GRANT EXECUTE ON FUNCTION fetch_top_threads             TO chan_archiver;
+GRANT EXECUTE ON FUNCTION fetch_catalog                 TO chan_archiver;
 GRANT usage, select ON SEQUENCE sites_site_id_seq       TO chan_archiver;
 GRANT usage, select ON SEQUENCE boards_board_id_seq     TO chan_archiver;
 GRANT usage, select ON SEQUENCE threads_thread_id_seq   TO chan_archiver;

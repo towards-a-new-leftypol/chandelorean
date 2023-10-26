@@ -28,7 +28,7 @@ LIMIT
   100;
  
  
- SELECT
+SELECT
   thread_data.thread_id,
   thread_data.bump_time,
   thread_data.first_post_subject,
@@ -313,6 +313,16 @@ group by thread_id
 order by bump_time desc;
 
 
+select max(creation_time) as bump_time, count(*), thread_id, min(creation_time) as where_to_leave_off
+from
+	(
+        select thread_id, creation_time, body from posts
+        where creation_time < NOW() - interval '365 day'
+        order by creation_time desc limit 10000
+	) as t
+group by thread_id
+order by bump_time desc;
+
 
    
 explain analyze SELECT
@@ -330,8 +340,8 @@ LIMIT 100
 
 
 -- Create temp table if not exists
-drop table if exists temp_results;
-CREATE TEMP TABLE IF NOT EXISTS temp_results (bump_time TIMESTAMPTZ, post_count INT, thread_id INT, last_fetched_time TIMESTAMP);
+DROP TABLE IF EXISTS temp_results;
+
 
 /*
  * This function scans backwards from p_start_time until we get the desired number of threads.
@@ -351,7 +361,8 @@ DECLARE
     max_iterations INT := 10; -- Maximum iterations to avoid endless loop in case of errors
     result_count INT := 0;
     last_min_time TIMESTAMP;
-BEGIN 
+BEGIN
+	CREATE TEMP TABLE IF NOT EXISTS temp_results (bump_time TIMESTAMPTZ, post_count INT, thread_id INT, last_fetched_time TIMESTAMP);
     TRUNCATE temp_results; -- clear the table
 
     FOR i IN 1..max_iterations LOOP 
@@ -368,9 +379,7 @@ BEGIN
         GROUP BY t.thread_id;
 
         -- Check if we have enough threads
-        --SELECT temp_results.thread_id INTO result_count FROM temp_results;
-       	SELECT COUNT(DISTINCT temp_results.thread_id) INTO result_count FROM temp_results; -- specify the table name here to avoid ambiguity
-
+       	SELECT COUNT(DISTINCT temp_results.thread_id) INTO result_count FROM temp_results;
 
         IF result_count >= p_desired_threads THEN
             EXIT;
@@ -387,13 +396,14 @@ BEGIN
     -- Return the results
     RETURN QUERY SELECT temp_results.bump_time, temp_results.post_count, temp_results.thread_id FROM temp_results ORDER BY temp_results.bump_time DESC;
 
+   	DROP TABLE IF EXISTS temp_results;
 END;
 $$;
 
 
-select * FROM fetch_top_threads(NOW(), 300) offset 0;
+select * FROM fetch_top_threads(NOW(), 100);
 
-explain analyze WITH TopThreads AS (
+WITH TopThreads AS (
     SELECT * FROM fetch_top_threads(NOW() - interval '365d', 100)
 )
 SELECT 
@@ -409,3 +419,175 @@ JOIN
     posts p ON tt.thread_id = p.thread_id
 ORDER BY 
     p.creation_time asc;
+
+
+SELECT *
+FROM
+    fetch_top_threads(NOW() - interval '365d', 100) top
+JOIN
+    posts ON posts.thread_id = top.thread_id
+ORDER BY posts.creation_time ASC;
+
+
+SELECT
+	post_id,
+	board_post_id,
+	posts.thread_id,
+	bump_time,
+	creation_time,
+	body
+FROM
+    fetch_top_threads(NOW() - interval '365d', 100) top
+JOIN
+    posts ON posts.thread_id = top.thread_id
+ORDER BY posts.creation_time ASC;
+
+
+VACUUM ANALYZE posts;
+
+SELECT posts.post_id, posts.thread_id, posts.body
+FROM
+    fetch_top_threads(NOW(), 100) top
+JOIN
+    posts ON posts.thread_id = top.thread_id;
+   
+   
+WITH
+top AS (
+	SELECT * FROM fetch_top_threads(NOW(), 100) top
+),
+joined AS (
+	SELECT posts.post_id, posts.thread_id, posts.body
+	FROM top JOIN posts ON posts.thread_id = top.thread_id
+	ORDER BY posts.creation_time DESC
+),
+grouped AS (
+	SELECT min(joined.post_id) op_post_id, joined.thread_id FROM joined
+	GROUP BY joined.thread_id
+) SELECT * FROM grouped JOIN joined ON op_post_id = joined.post_id;
+
+
+WITH
+top AS (
+	SELECT * FROM fetch_top_threads(NOW(), 100) OFFSET 0
+),
+joined AS (
+	SELECT posts.post_id, posts.thread_id, posts.body, posts.creation_time
+	FROM top JOIN posts ON posts.thread_id = top.thread_id
+	ORDER BY posts.creation_time DESC
+),
+grouped AS (
+	SELECT min(joined.creation_time) op_creation_time, joined.thread_id, count(*) AS post_count FROM joined
+	GROUP BY joined.thread_id
+) SELECT joined.*, grouped.post_count
+FROM grouped JOIN joined ON op_creation_time = joined.creation_time AND grouped.thread_id = joined.thread_id;
+
+
+WITH
+top AS (
+	SELECT * FROM fetch_top_threads(NOW(), 200) OFFSET 0
+),
+joined AS (
+	SELECT 
+		posts.post_id, 
+		posts.thread_id, 
+		posts.body, 
+		posts.creation_time,
+		ROW_NUMBER() OVER(PARTITION BY posts.thread_id ORDER BY posts.creation_time, posts.post_id) as rn
+	FROM top 
+	JOIN posts ON posts.thread_id = top.thread_id
+),
+grouped AS (
+	SELECT joined.post_id, joined.thread_id
+	FROM joined
+	WHERE joined.rn = 1
+)
+SELECT joined.* 
+FROM grouped 
+JOIN joined ON grouped.post_id = joined.post_id;
+
+
+
+SELECT 
+    sub.post_id,
+    sub.thread_id,
+    sub.body,
+    sub.creation_time
+FROM 
+(
+    SELECT 
+        posts.post_id, 
+        posts.thread_id, 
+        posts.body, 
+        posts.creation_time,
+        ROW_NUMBER() OVER(PARTITION BY posts.thread_id ORDER BY posts.creation_time, posts.post_id) as rn
+    FROM fetch_top_threads(NOW(), 200) AS top
+    JOIN posts ON posts.thread_id = top.thread_id
+) AS sub
+WHERE 
+    sub.rn = 1;
+   
+   
+SELECT 
+    sub.post_id,
+    sub.thread_id,
+    sub.body,
+    sub.creation_time
+FROM 
+(
+    SELECT 
+        posts.post_id, 
+        posts.thread_id, 
+        posts.body, 
+        posts.creation_time,
+        ROW_NUMBER() OVER(PARTITION BY posts.thread_id ORDER BY posts.creation_time, posts.post_id) as rn
+    FROM 
+        (SELECT * FROM fetch_top_threads(NOW(), 200) OFFSET 0) AS top
+    JOIN posts ON posts.thread_id = top.thread_id
+) AS sub
+WHERE 
+    sub.rn = 1;
+
+SELECT count(*) FROM fetch_catalog(NOW(), 400, 0);
+
+SELECT * FROM fetch_top_threads(NOW(), 200);
+
+
+SELECT count(*) FROM
+(
+SELECT top.thread_id, count(*) as post_count FROM fetch_top_threads(NOW(), 200) top JOIN posts ON posts.thread_id = top.thread_id
+GROUP BY top.thread_id
+) t;
+
+-- how do I 
+
+
+CREATE OR REPLACE FUNCTION fetch_catalog(max_time timestamptz, wanted_result_count integer, offset_count integer)
+RETURNS TABLE (
+    op_post_id bigint,
+    thread_id bigint,
+    post_count bigint,
+    body text,
+    creation_time timestamptz
+)
+LANGUAGE SQL
+AS $$
+WITH
+top AS (
+	SELECT * FROM fetch_top_threads(max_time, wanted_result_count) OFFSET offset_count
+),
+joined AS (
+	SELECT posts.post_id, posts.thread_id, posts.body, posts.creation_time
+	FROM top JOIN posts ON posts.thread_id = top.thread_id
+	ORDER BY posts.creation_time DESC
+),
+grouped AS (
+	SELECT min(joined.post_id) op_post_id, joined.thread_id, count(*) AS post_count FROM joined
+	GROUP BY joined.thread_id
+) SELECT grouped.*, joined.body, joined.creation_time FROM grouped JOIN joined ON op_post_id = joined.post_id;
+$$;
+
+
+
+
+
