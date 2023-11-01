@@ -52,11 +52,6 @@ instance FromJSON Catalog
 parseJSONCatalog :: FilePath -> IO (Either String [Catalog])
 parseJSONCatalog path = B.readFile path >>= return . eitherDecode
 
-{-
-parsePosts :: FilePath -> IO (Either String Post.PostWrapper)
-parsePosts path = B.readFile path >>= return . eitherDecode
--}
-
 
 parsePosts :: FilePath -> IO (Either String Post.PostWrapper)
 parsePosts path = do

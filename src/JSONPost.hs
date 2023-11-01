@@ -13,6 +13,7 @@ data Post = Post
     { no             :: Int64
     , com            :: Maybe Text
     , name           :: Maybe Text
+    , sub            :: Maybe Text
     , time           :: Int
     , omitted_posts  :: Maybe Int
     , omitted_images :: Maybe Int

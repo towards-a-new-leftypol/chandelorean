@@ -199,6 +199,8 @@ apiPostToArchivePost thread post =
     , Posts.board_post_id   = JSONPosts.no post
     , Posts.creation_time   = posixSecondsToUTCTime (realToFrac $ JSONPosts.time post)
     , Posts.body            = JSONPosts.com post
+    , Posts.name            = JSONPosts.name post
+    , Posts.subject         = JSONPosts.sub post
     , Posts.thread_id       = Threads.thread_id thread
     }
 

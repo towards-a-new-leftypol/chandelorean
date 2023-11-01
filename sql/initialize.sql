@@ -66,6 +66,9 @@ CREATE TABLE IF NOT EXISTS posts
     , board_post_id bigint NOT NULL
     , creation_time timestamp with time zone NOT NULL
     , body text
+    , subject text
+    , name text
+    , email text
     , body_search_index tsvector
     , thread_id bigint NOT NULL
     , CONSTRAINT unique_thread_board_id_constraint UNIQUE (thread_id, board_post_id)
@@ -80,7 +83,12 @@ CREATE INDEX posts_thread_id_creation_time_idx ON posts (creation_time, thread_i
 
 CREATE OR REPLACE FUNCTION update_post_body_search_index() RETURNS trigger AS $$
 BEGIN
-    NEW.body_search_index := to_tsvector('english', NEW.body);
+    NEW.body_search_index :=
+        (
+            setweight(to_tsvector('english', COALESCE(NEW.subject, '')), 'A') ||
+            setweight(to_tsvector('english', COALESCE(NEW.name, '')), 'B') ||
+            setweight(to_tsvector('english', COALESCE(NEW.body, '')), 'C')
+        );
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -157,8 +165,8 @@ to_insert AS (
     WHERE s.post_id IS NULL
 ),
 inserted AS (
-    INSERT INTO posts (board_post_id, creation_time, body, thread_id)
-    SELECT board_post_id, creation_time, body, thread_id
+    INSERT INTO posts (board_post_id, creation_time, body, subject, name, email, thread_id)
+    SELECT board_post_id, creation_time, body, subject, name, email, thread_id
     FROM to_insert
     RETURNING post_id, board_post_id, thread_id
 )
@@ -204,6 +212,7 @@ RETURNS TABLE (
     board_post_id bigint,
     creation_time timestamptz,
     body text,
+    subject text,
     thread_id bigint,
     board_thread_id bigint,
     pathpart text,
@@ -222,6 +231,7 @@ RETURNS TABLE (
                 posts.board_post_id,
                 posts.creation_time,
                 posts.body,
+                posts.subject,
                 posts.thread_id
             FROM top
             JOIN posts ON top.thread_id = posts.thread_id

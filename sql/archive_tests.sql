@@ -588,6 +588,20 @@ grouped AS (
 $$;
 
 
+SELECT * FROM posts WHERE body_search_index @@ websearch_to_tsquery('english', 'TRUE CHRISTIAN');
+SELECT to_tsvector('english', body) FROM posts WHERE board_post_id = 476524;
+SELECT (setweight(to_tsvector('english', COALESCE(subject, '')), 'A') ||
+    setweight(to_tsvector('english', COALESCE(name, '')), 'B') ||
+    setweight(to_tsvector('english', COALESCE(body, '')), 'C')) FROM posts WHERE board_post_id = 476524;
+SELECT * FROM posts WHERE board_post_id = 476524;
 
+UPDATE posts SET subject = NULL WHERE board_post_id = 476524;
 
+UPDATE posts
+SET body_search_index = (
+    setweight(to_tsvector('english', COALESCE(subject, '')), 'A') ||
+    setweight(to_tsvector('english', COALESCE(name, '')), 'B') ||
+    setweight(to_tsvector('english', COALESCE(body, '')), 'C')
+)
+WHERE board_post_id = 476524;
 

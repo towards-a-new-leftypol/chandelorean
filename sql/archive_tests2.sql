@@ -192,6 +192,7 @@ $$ LANGUAGE sql;
 
 SELECT * FROM fetch_catalog(NOW() - INTERVAL '1y', 1001);
 
+SELECT * FROM fetch_catalog(NOW(), 2000);
 
 -- CREATE INDEX idx_posts_thread_board ON posts (thread_id, board_post_id);
 ANALYZE posts;

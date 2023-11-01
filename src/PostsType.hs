@@ -15,5 +15,7 @@ data Post = Post
     , board_post_id   :: Int64
     , creation_time   :: UTCTime
     , body            :: Maybe Text
+    , name            :: Maybe Text
+    , subject         :: Maybe Text
     , thread_id       :: Int
     } deriving (Show, Generic, FromJSON, ToJSON)
