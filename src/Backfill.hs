@@ -201,6 +201,7 @@ apiPostToArchivePost thread post =
     , Posts.body            = JSONPosts.com post
     , Posts.name            = JSONPosts.name post
     , Posts.subject         = JSONPosts.sub post
+    , Posts.email           = JSONPosts.email post
     , Posts.thread_id       = Threads.thread_id thread
     }
 

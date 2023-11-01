@@ -14,6 +14,7 @@ data Post = Post
     , com            :: Maybe Text
     , name           :: Maybe Text
     , sub            :: Maybe Text
+    , email          :: Maybe Text
     , time           :: Int
     , omitted_posts  :: Maybe Int
     , omitted_images :: Maybe Int
