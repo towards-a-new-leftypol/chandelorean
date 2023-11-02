@@ -140,7 +140,9 @@ RETURNS TABLE (
     post_id bigint,
     board_post_id bigint,
     creation_time timestamptz,
+    bump_time timestamptz,
     body text,
+    subject text,
     thread_id bigint,
     board_thread_id bigint,
     pathpart text,
@@ -158,7 +160,9 @@ RETURNS TABLE (
                 posts.post_id,
                 posts.board_post_id,
                 posts.creation_time,
+                top.bump_time,
                 posts.body,
+                posts.subject,
                 posts.thread_id
             FROM top
             JOIN posts ON top.thread_id = posts.thread_id
@@ -187,12 +191,15 @@ RETURNS TABLE (
     JOIN post_counts ON op_posts.thread_id = post_counts.thread_id
     JOIN threads ON op_posts.thread_id = threads.thread_id
     JOIN boards ON threads.board_id = boards.board_id
-    JOIN sites ON sites.site_id = boards.site_id;
+    JOIN sites ON sites.site_id = boards.site_id
+    ORDER BY bump_time DESC;
 $$ LANGUAGE sql;
 
 SELECT * FROM fetch_catalog(NOW() - INTERVAL '1y', 1001);
 
-SELECT * FROM fetch_catalog(NOW(), 2000);
+SELECT * FROM fetch_catalog(NOW(), 1000);
+
+SELECT count(*) FROM posts;
 
 -- CREATE INDEX idx_posts_thread_board ON posts (thread_id, board_post_id);
 ANALYZE posts;

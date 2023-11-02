@@ -588,7 +588,13 @@ grouped AS (
 $$;
 
 
-SELECT * FROM posts WHERE body_search_index @@ websearch_to_tsquery('english', 'TRUE CHRISTIAN');
+SELECT * FROM posts WHERE body_search_index @@ websearch_to_tsquery('english', 'holocaust');
+SELECT *,
+       ts_rank(body_search_index, websearch_to_tsquery('english', 'holocaust')) AS relevance
+FROM posts
+WHERE body_search_index @@ websearch_to_tsquery('english', 'holocaust')
+ORDER BY relevance DESC;
+
 SELECT to_tsvector('english', body) FROM posts WHERE board_post_id = 476524;
 SELECT (setweight(to_tsvector('english', COALESCE(subject, '')), 'A') ||
     setweight(to_tsvector('english', COALESCE(name, '')), 'B') ||
