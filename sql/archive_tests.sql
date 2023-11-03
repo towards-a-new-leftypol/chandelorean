@@ -589,11 +589,31 @@ $$;
 
 
 SELECT * FROM posts WHERE body_search_index @@ websearch_to_tsquery('english', 'holocaust');
-SELECT *,
-       ts_rank(body_search_index, websearch_to_tsquery('english', 'holocaust')) AS relevance
-FROM posts
-WHERE body_search_index @@ websearch_to_tsquery('english', 'holocaust')
+
+
+WITH query AS (
+  SELECT websearch_to_tsquery('english', 'Anonymous') AS query
+)
+SELECT p.*, ts_rank(p.body_search_index, query.query) AS relevance
+FROM posts p, query
+WHERE p.body_search_index @@ query.query
 ORDER BY relevance DESC;
+
+
+CREATE OR REPLACE FUNCTION search_posts(search_text TEXT)
+RETURNS SETOF posts
+AS $$
+SELECT p.*
+FROM posts p
+WHERE p.body_search_index @@ websearch_to_tsquery('english', search_text)
+ORDER BY ts_rank(p.body_search_index, websearch_to_tsquery('english', search_text)) DESC;
+$$ LANGUAGE sql STABLE;
+
+SELECT * FROM search_posts('found this board lainchan');
+
+SELECT * FROM information_schema.role_routine_grants;
+
+
 
 SELECT to_tsvector('english', body) FROM posts WHERE board_post_id = 476524;
 SELECT (setweight(to_tsvector('english', COALESCE(subject, '')), 'A') ||

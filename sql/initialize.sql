@@ -267,17 +267,66 @@ RETURNS TABLE (
 $$ LANGUAGE sql;
 
 
+
+-- Function: search_posts
+-- 
+-- This function performs a full-text search on the `posts` table using PostgreSQL's text search features.
+-- It takes a single argument `search_text`, which represents the text to search for within the `posts` body content.
+-- The function is designed to return rows from the `posts` table where the `body_search_index` tsvector column matches
+-- the websearch to tsquery conversion of the input `search_text`. Results are ranked by their relevance to the search
+-- text, with the most relevant posts appearing first.
+-- 
+-- The function uses the `websearch_to_tsquery` function for parsing the provided search text into a tsquery object
+-- using the 'english' configuration. It then ranks the results using the `ts_rank` function based on the match
+-- between the `body_search_index` column and the tsquery object, ordering the posts from most to least relevant.
+-- 
+-- Note that the `relevance` score is used only for ordering the results; it is not included in the function's return set.
+-- 
+-- Parameters:
+--   - search_text: TEXT, the text to be searched in the `posts` body.
+--
+-- Returns:
+--   - A SETOF rows from the `posts` table ordered by the relevance of the full-text search.
+--
+-- Usage:
+--   SELECT * FROM search_posts('Desired search text');
+--
+-- The function is marked as STABLE, indicating that it does not modify the database and always returns the same
+-- results for the same input when the underlying data does not change.
+--
+-- Example:
+--   -- To search for posts related to 'quantum computing':
+--   SELECT * FROM search_posts('quantum computing');
+CREATE OR REPLACE FUNCTION search_posts(search_text TEXT)
+RETURNS SETOF posts
+AS $$
+SELECT p.*
+FROM posts p
+WHERE p.body_search_index @@ websearch_to_tsquery('english', search_text)
+ORDER BY ts_rank(p.body_search_index, websearch_to_tsquery('english', search_text)) DESC;
+$$ LANGUAGE sql STABLE;
+
+
 /*
  * Permissions
  */
+REVOKE EXECUTE ON FUNCTION insert_posts_and_return_ids FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION fetch_top_threads FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION fetch_catalog FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION search_posts FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION update_post_body_search_index FROM PUBLIC;
 
 CREATE ROLE chan_archive_anon nologin;
-GRANT CONNECT ON DATABASE chan_archives TO chan_archive_anon;
-GRANT SELECT ON sites                   TO chan_archive_anon;
-GRANT SELECT ON boards                  TO chan_archive_anon;
-GRANT SELECT ON threads                 TO chan_archive_anon;
-GRANT SELECT ON posts                   TO chan_archive_anon;
-GRANT SELECT ON attachments             TO chan_archive_anon;
+GRANT CONNECT ON DATABASE chan_archives     TO chan_archive_anon;
+GRANT SELECT ON sites                       TO chan_archive_anon;
+GRANT SELECT ON boards                      TO chan_archive_anon;
+GRANT SELECT ON threads                     TO chan_archive_anon;
+GRANT SELECT ON posts                       TO chan_archive_anon;
+GRANT SELECT ON attachments                 TO chan_archive_anon;
+GRANT EXECUTE ON FUNCTION fetch_catalog     TO chan_archive_anon;
+GRANT EXECUTE ON FUNCTION fetch_top_threads TO chan_archive_anon;
+GRANT EXECUTE ON FUNCTION search_posts      TO chan_archive_anon;
+
 -- GRANT usage, select ON SEQUENCE sites_site_id_seq TO chan_archive_anon;
 -- GRANT usage, select ON SEQUENCE boards_board_id_seq TO chan_archive_anon;
 GRANT chan_archive_anon                 TO admin;
@@ -294,6 +343,7 @@ GRANT EXECUTE ON FUNCTION update_post_body_search_index TO chan_archiver;
 GRANT EXECUTE ON FUNCTION insert_posts_and_return_ids   TO chan_archiver;
 GRANT EXECUTE ON FUNCTION fetch_top_threads             TO chan_archiver;
 GRANT EXECUTE ON FUNCTION fetch_catalog                 TO chan_archiver;
+GRANT EXECUTE ON FUNCTION search_posts                  TO chan_archiver;
 GRANT usage, select ON SEQUENCE sites_site_id_seq       TO chan_archiver;
 GRANT usage, select ON SEQUENCE boards_board_id_seq     TO chan_archiver;
 GRANT usage, select ON SEQUENCE threads_thread_id_seq   TO chan_archiver;

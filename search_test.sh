@@ -2,5 +2,5 @@
 time curl \
     -v \
     -H "Content-Type: application/json" \
-    -d '{ "max_time": "2023-11-02", "max_row_read": 1001 }' \
-    -X POST http://localhost:3000/rpc/fetch_catalog
+    -d '{ "search_text": "found this board lainchan" }' \
+    -X POST http://localhost:3000/rpc/search_posts
