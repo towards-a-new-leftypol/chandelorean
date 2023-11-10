@@ -217,7 +217,8 @@ RETURNS TABLE (
     thread_id bigint,
     board_thread_id bigint,
     pathpart text,
-    name text
+    site_name text,
+    site_id int
 ) AS $$
     WITH
         top AS
@@ -257,7 +258,8 @@ RETURNS TABLE (
         op_posts.*,
         threads.board_thread_id,
         boards.pathpart,
-        sites."name"
+        sites."name",
+        sites.site_id
     FROM op_posts
     JOIN post_counts ON op_posts.thread_id = post_counts.thread_id
     JOIN threads ON op_posts.thread_id = threads.thread_id
