@@ -1,3 +1,6 @@
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Redundant bracket" #-}
+{-# HLINT ignore "Use fromMaybe" #-}
 module Main where
 
 import System.Exit
@@ -22,7 +25,7 @@ import qualified BoardsType as Boards
 import qualified ThreadType as Threads
 import qualified PostsType  as Posts
 
-data SettingsCLI = SettingsCLI
+newtype SettingsCLI = SettingsCLI
   { jsonFile :: FilePath
   } deriving (Show, Data, Typeable)
 
@@ -42,11 +45,11 @@ listCatalogDirectories settings = do
     excludedDirs = ["sfw", "alt", "overboard"]
 
     hasCatalog dir = do
-      let catalogPath = (backup_read_root settings) </> dir </> "catalog.json"
+      let catalogPath = backup_read_root settings </> dir </> "catalog.json"
       doesFileExist catalogPath
 
 
-ensureSiteExists :: JSONSettings -> IO (Int)
+ensureSiteExists :: JSONSettings -> IO Int
 ensureSiteExists settings = do
     sitesResult <- Client.getAllSites settings
 
@@ -65,7 +68,7 @@ ensureSiteExists settings = do
                         putStrLn $ "Successfully created " ++ site_name settings ++ ". " ++ show site
                         return $ Sites.site_id site
                     Right [] -> do
-                        putStrLn $ "Did not get new site id back from postgrest"
+                        putStrLn "Did not get new site id back from postgrest"
                         exitFailure
                     Left err -> do
                         putStrLn $ "Failed to create " ++ site_name settings
@@ -100,7 +103,7 @@ createArchivesForNewBoards settings dirsSet archived_boards siteid = do
             exitFailure
         Right boards -> do
             putStrLn "Created the following boards:"
-            mapM_ putStrLn (map Boards.pathpart boards)
+            mapM_ (putStrLn . Boards.pathpart) boards
             return boards
 
 
@@ -124,7 +127,7 @@ createArchivesForNewThreads
     -> Boards.Board
     -> IO [ Threads.Thread ]
 createArchivesForNewThreads settings all_threads archived_threads board = do
-    putStrLn $ "Creating " ++ (show $ length threads_to_create) ++ " threads."
+    putStrLn $ "Creating " ++ show (length threads_to_create) ++ " threads."
     threads_result <- Client.postThreads settings (map (apiThreadToArchiveThread board_id) threads_to_create)
 
     case threads_result of
@@ -156,7 +159,7 @@ ensureThreads settings board all_threads = do
             putStrLn $ "Error fetching threads: " ++ show err
             exitFailure
         Right archived_threads -> do
-            putStrLn $ (show $ length archived_threads)++ " threads already exist."
+            putStrLn $ show (length archived_threads) ++ " threads already exist."
             new_threads <- createArchivesForNewThreads settings all_threads archived_threads board
             return $ archived_threads ++ new_threads
 
@@ -173,14 +176,14 @@ readPosts settings board thread = do
         Left err -> do
             putStrLn $ "Failed to parse the JSON file " ++ thread_filename ++ " error: " ++ err
             return (thread, [])
-        Right posts_wrapper -> return $ (thread, JSONPosts.posts posts_wrapper)
+        Right posts_wrapper -> return (thread, JSONPosts.posts posts_wrapper)
 
     where
         thread_filename :: FilePath
-        thread_filename = backupDir </> "res" </> ((show $ Threads.board_thread_id thread) ++ ".json")
+        thread_filename = backupDir </> "res" </> (show (Threads.board_thread_id thread) ++ ".json")
 
         backupDir :: FilePath
-        backupDir = backup_read_root settings </> (Boards.pathpart board)
+        backupDir = backup_read_root settings </> Boards.pathpart board
 
 
 ensurePosts
@@ -193,7 +196,7 @@ ensurePosts = undefined
 
 -- Convert Post to DbPost
 apiPostToArchivePost :: Threads.Thread -> JSONPosts.Post -> Posts.Post
-apiPostToArchivePost thread post = 
+apiPostToArchivePost thread post =
     Posts.Post
     { Posts.post_id         = Nothing
     , Posts.board_post_id   = JSONPosts.no post
@@ -236,7 +239,7 @@ processBoard settings board = do
             all_posts_on_board :: [(Threads.Thread, [ JSONPosts.Post ])] <- mapM (readPosts settings board) all_threads_for_board
 
             -- putStrLn $ "Number of posts on /" ++ (Boards.pathpart board) ++ "/ " ++ (show $ length all_posts_on_board)
-            posts_result <- Client.postPosts settings (concatMap (\(t, posts) -> map (apiPostToArchivePost t) posts) all_posts_on_board) 
+            posts_result <- Client.postPosts settings (concatMap (\(t, posts) -> map (apiPostToArchivePost t) posts) all_posts_on_board)
 
             -- TODO: why doesn't it insert posts for threads that already exist? we can have new posts!
 
