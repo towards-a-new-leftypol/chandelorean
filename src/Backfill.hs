@@ -29,11 +29,6 @@ newtype SettingsCLI = SettingsCLI
   { jsonFile :: FilePath
   } deriving (Show, Data, Typeable)
 
-settingsCLI :: SettingsCLI
-settingsCLI = SettingsCLI
-    { jsonFile = def &= args &= typ "settings-jsonfile-path"
-    } &= summary "Backfill v0.0.2"
-
 
 listCatalogDirectories :: JSONSettings -> IO [ FilePath ]
 listCatalogDirectories settings = do
@@ -302,7 +297,7 @@ processBackupDirectory settings = do
 
 main :: IO ()
 main = do
-    settingsValue <- cmdArgs settingsCLI
+    settingsValue <- cmdArgs $ SettingsCLI "backfill_settings.json"
     let filePath = jsonFile settingsValue
     if null filePath
     then do

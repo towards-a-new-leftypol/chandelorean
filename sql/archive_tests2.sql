@@ -197,7 +197,7 @@ $$ LANGUAGE sql;
 
 SELECT * FROM fetch_catalog(NOW() - INTERVAL '1y', 1001);
 
-SELECT * FROM fetch_catalog(NOW(), 1000);
+SELECT * FROM fetch_catalog(NOW(), 5000);
 
 SELECT count(*) FROM posts;
 

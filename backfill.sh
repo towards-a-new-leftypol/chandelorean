@@ -23,7 +23,7 @@ if [[ ! -f "$SETTINGS_FILE" ]]; then
     exit 1
 fi
 
-PROG="./dist-newstyle/build/x86_64-linux/ghc-9.2.8/chan-delorean-0.0.1/x/chan-delorean/build/chan-delorean/chan-delorean"
+PROG="./dist-newstyle/build/x86_64-linux/ghc-9.4.8/chan-delorean-0.0.1/x/chan-delorean/build/chan-delorean/chan-delorean"
 
 # Ensure chan-delorean is compiled and available
 if ! command -v $PROG >/dev/null; then
@@ -37,7 +37,7 @@ while IFS= read -r BACKUP_PATH; do
     sed -e 's|\("backup_read_root": \)".*"|\1"'"$BACKUP_PATH"'"|' "$SETTINGS_FILE" > "temp_$SETTINGS_FILE"
     
     # Run the Haskell program with the updated settings file
-    time $PROG +RTS -N2 -RTS "temp_$SETTINGS_FILE"
+    time $PROG +RTS -N2 -RTS -j "temp_$SETTINGS_FILE"
 done < "$PATHS_FILE"
 
 # Optionally, remove the temporary settings file

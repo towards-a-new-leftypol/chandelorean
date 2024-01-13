@@ -588,7 +588,7 @@ grouped AS (
 $$;
 
 
-SELECT * FROM posts WHERE body_search_index @@ websearch_to_tsquery('english', 'holocaust');
+SELECT * FROM posts WHERE body_search_index @@ websearch_to_tsquery('english', 'portfolios of color');
 
 
 WITH query AS (
@@ -609,10 +609,20 @@ WHERE p.body_search_index @@ websearch_to_tsquery('english', search_text)
 ORDER BY ts_rank(p.body_search_index, websearch_to_tsquery('english', search_text)) DESC;
 $$ LANGUAGE sql STABLE;
 
-SELECT * FROM search_posts('found this board lainchan');
+
+SELECT * FROM search_posts('alt chans') s
+JOIN threads ON threads.thread_id = s.thread_id
+JOIN boards ON boards.board_id = threads.board_id;
+
 
 SELECT * FROM information_schema.role_routine_grants;
+SELECT * FROM posts WHERE board_post_id = 558;
+SELECT * FROM posts WHERE thread_id = 12790 ORDER BY board_post_id ASC; -- last post: 2023-10-30 14:20:07.000 -0400
 
+SELECT * FROM posts JOIN threads ON posts.thread_id = threads.thread_id JOIN boards on boards.board_id = threads.board_id
+WHERE board_post_id = 555
+AND pathpart = 'posad'
+ORDER BY board_post_id ASC;
 
 
 SELECT to_tsvector('english', body) FROM posts WHERE board_post_id = 476524;
