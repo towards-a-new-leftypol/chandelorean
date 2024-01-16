@@ -74,7 +74,7 @@ executable chan-delorean
                       ThreadType
                       JSONPost
                       JSONCommonTypes
-                      PostsType
+                      Common.PostsType
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:

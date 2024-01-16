@@ -37,7 +37,7 @@ import qualified JSONSettings as T
 import qualified SitesType as Sites
 import qualified BoardsType as Boards
 import qualified ThreadType as Threads
-import qualified PostsType  as Posts
+import qualified Common.PostsType  as Posts
 
 data HttpError
     = HttpException SomeException
