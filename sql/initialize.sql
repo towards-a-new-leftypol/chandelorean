@@ -103,7 +103,7 @@ CREATE TABLE IF NOT EXISTS attachments
     ( attachment_id bigserial primary key
     , mimetype text NOT NULL
     , creation_time timestamp with time zone NOT NULL
-    , md5_hash text NOT NULL
+    , sha256_hash text NOT NULL
     , phash bigint
     , illegal boolean NOT NULL DEFAULT false
     , post_id bigint NOT NULL
@@ -117,7 +117,9 @@ CREATE TABLE IF NOT EXISTS attachments
     );
 CREATE INDEX attachments_creation_time_idx  ON attachments (creation_time);
 CREATE INDEX attachments_post_id_idx        ON attachments (post_id);
-CREATE INDEX attachments_md5_hash_idx       ON attachments (md5_hash);
+CREATE INDEX attachments_sha256_hash_idx    ON attachments (sha256_hash);
+--
+-- Index using the bktree extension for quickly getting the closest phashes
 CREATE INDEX attachments_phash_bktree_index ON attachments USING spgist (phash bktree_ops);
 
 
