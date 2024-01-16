@@ -103,7 +103,7 @@ CREATE TABLE IF NOT EXISTS attachments
     ( attachment_id bigserial primary key
     , mimetype text NOT NULL
     , creation_time timestamp with time zone NOT NULL
-    , sha256_hash text NOT NULL
+    , sha256_hash text NOT NULL UNIQUE
     , phash bigint
     , illegal boolean NOT NULL DEFAULT false
     , post_id bigint NOT NULL
@@ -179,6 +179,36 @@ $$ LANGUAGE sql;
 
 -- 1:51 for clean db (this varies a lot)
 -- 1:21 for full db (nothing inserted)
+
+
+CREATE OR REPLACE FUNCTION insert_attachments_and_return_ids(
+    attachments_payload attachments[])
+RETURNS TABLE (attachment_id bigint, post_id bigint, sha256_hash text) AS $$
+WITH
+selected AS (
+    SELECT attachment_id, post_id, sha256_hash
+    FROM attachments
+    WHERE sha256_hash IN (
+        SELECT sha256_hash FROM unnest(attachments_payload)
+    )
+),
+to_insert AS (
+    SELECT new_a.*
+    FROM unnest(attachments_payload) AS new_a
+    LEFT OUTER JOIN selected s
+        ON new_a.sha256_hash = s.sha256_hash
+    WHERE s.attachment_id IS NULL
+),
+inserted AS (
+    INSERT INTO attachments (mimetype, creation_time, sha256_hash, phash, illegal, post_id)
+    SELECT mimetype, creation_time, sha256_hash, phash, illegal, post_id
+    FROM to_insert
+    RETURNING attachment_id, post_id, sha256_hash
+)
+SELECT * FROM inserted
+UNION ALL
+SELECT * FROM selected;
+$$ LANGUAGE sql;
 
 
 CREATE OR REPLACE FUNCTION fetch_top_threads(
