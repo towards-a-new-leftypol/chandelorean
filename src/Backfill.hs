@@ -228,18 +228,14 @@ setPostIdInPosts post_pairs ids = map f ids
             (\(i, j) -> (i, j { Posts.post_id = Just asdf1 })) (post_map Map.! (asdf2, asdf3))
 
 
-fileToAttachment :: Posts.Post -> JS.File -> IO Attachments.Attachment
-fileToAttachment post file = do
-    -- sha :: Text <- undefined
-
-    return Attachments.Attachment
+fileToAttachment :: Posts.Post -> JS.File -> Attachments.Attachment
+fileToAttachment post file =
+    Attachments.Attachment
         { Attachments.attachment_id = Nothing
-        , Attachments.mimetype = "undefined/undefined"
+        , Attachments.mimetype = maybe "undefined/undefined" id (JS.mime file)
         , Attachments.creation_time = Posts.creation_time post
         , Attachments.sha256_hash = undefined
-        , Attachments.phash = undefined -- oh shit? we need a network request for this
-            -- but here we don't want to make a network request for every file we get for every post.
-            --      - probably most of them will already be in the database!
+        , Attachments.phash = undefined
         , Attachments.illegal = False
         , Attachments.post_id = fromJust $ Posts.post_id post
         }
@@ -272,6 +268,12 @@ processBoard settings board = do
                 Left err -> print err
                 Right (new_ids :: [ Client.PostId ]) -> do
                     let perfectPostPairs = setPostIdInPosts postPairs new_ids
+
+                    existingAttachments <- Client.getAttachments settings (map (fromJust . Posts.post_id . snd) perfectPostPairs)
+
+                    let attachments_on_board = concatMap
+                            (\(p, q) -> map (fileToAttachment q) (maybe [] id $ JSONPosts.files p))
+                            perfectPostPairs
 
                     -- must call
                     -- Client.postAttachments settings (all_attachments_on_board :: [ Attachments.Attachment ])
