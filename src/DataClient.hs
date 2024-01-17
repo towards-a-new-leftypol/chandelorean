@@ -192,17 +192,6 @@ postPosts settings posts =
     where
       payload = encode $ object [ "new_posts" .= posts ]
 
-{-
-postAttachments
-    :: T.JSONSettings
-    -> [ Attachments.Attachment ]
-    -> IO (Either HttpError [ AttachmentId ])
-postAttachments settings attachments =
-    post settings "/rpc/insert_attachments_and_return_ids" payload True >>= return . eitherDecodeResponse
-
-    where
-      payload = encode $ object [ "attachments_payload" .= attachments ]
--}
 
 eitherDecodeResponse :: (FromJSON a) => Either HttpError LBS.ByteString -> Either HttpError a
 eitherDecodeResponse (Left err) = Left err
