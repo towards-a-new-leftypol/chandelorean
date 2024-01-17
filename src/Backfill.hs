@@ -256,24 +256,26 @@ processBoard settings board = do
 
             all_posts_on_board :: [(Threads.Thread, [ JSONPosts.Post ])] <- mapM (readPosts settings board) all_threads_for_board
 
-            let postPairs :: [ (JSONPosts.Post, Posts.Post) ] = concatMap
+            let post_pairs :: [ (JSONPosts.Post, Posts.Post) ] = concatMap
                     ( \(t, posts) -> map (\p -> (p, apiPostToArchivePost t p)) posts )
                     all_posts_on_board
 
             -- putStrLn $ "Number of posts on /" ++ (Boards.pathpart board) ++ "/ " ++ (show $ length all_posts_on_board)
-            posts_result <- Client.postPosts settings (map snd postPairs)
+            posts_result <- Client.postPosts settings (map snd post_pairs)
             -- TODO: why doesn't it insert posts for threads that already exist? we can have new posts!
 
             case posts_result of
                 Left err -> print err
                 Right (new_ids :: [ Client.PostId ]) -> do
-                    let perfectPostPairs = setPostIdInPosts postPairs new_ids
+                    let perfect_post_pairs = setPostIdInPosts post_pairs new_ids
 
-                    existingAttachments <- Client.getAttachments settings (map (fromJust . Posts.post_id . snd) perfectPostPairs)
+                    existingAttachments <- Client.getAttachments settings (map (fromJust . Posts.post_id . snd) perfect_post_pairs)
 
                     let attachments_on_board = concatMap
                             (\(p, q) -> map (fileToAttachment q) (maybe [] id $ JSONPosts.files p))
-                            perfectPostPairs
+                            perfect_post_pairs
+
+                    -- need to get all the attachments in attachments_on_board that are not in existingAttachments
 
                     -- must call
                     -- Client.postAttachments settings (all_attachments_on_board :: [ Attachments.Attachment ])
