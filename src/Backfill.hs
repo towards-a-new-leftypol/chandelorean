@@ -1,9 +1,12 @@
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Redundant bracket" #-}
 {-# HLINT ignore "Use fromMaybe" #-}
+{-# LANGUAGE OverloadedStrings #-}
+
 module Main where
 
 import System.Exit
+import Data.Int (Int64)
 import Control.Monad (filterM)
 import Data.Aeson (decode)
 import qualified Data.ByteString.Lazy as B
@@ -15,15 +18,19 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import Data.Time.Clock (UTCTime)
+import qualified Data.Map as Map
+import Data.Maybe (fromJust)
 
 import JSONParsing
 import JSONSettings
+import qualified JSONCommonTypes as JS
 import qualified JSONPost   as JSONPosts
 import qualified DataClient as Client
 import qualified SitesType  as Sites
 import qualified BoardsType as Boards
 import qualified ThreadType as Threads
-import qualified Common.PostsType  as Posts
+import qualified AttachmentType as Attachments
+import qualified Common.PostsType as Posts
 
 newtype SettingsCLI = SettingsCLI
   { jsonFile :: FilePath
@@ -181,14 +188,6 @@ readPosts settings board thread = do
         backupDir = backup_read_root settings </> Boards.pathpart board
 
 
-ensurePosts
-    :: JSONSettings
-    -> Boards.Board
-    -> [(Threads.Thread, [ Posts.Post ])]
-    -> IO [(Threads.Thread, [ Posts.Post ])]
-ensurePosts = undefined
-
-
 -- Convert Post to DbPost
 apiPostToArchivePost :: Threads.Thread -> JSONPosts.Post -> Posts.Post
 apiPostToArchivePost thread post =
@@ -218,6 +217,34 @@ concatMapM op = foldr f (pure [])
                 pure $ x_ ++ xs_
 
 
+setPostIdInPosts :: [ (JSONPosts.Post, Posts.Post) ] -> [ Client.PostId ] -> [ (JSONPosts.Post, Posts.Post) ]
+setPostIdInPosts post_pairs ids = map f ids
+    where
+        post_map :: Map.Map (Int64, Int64) (JSONPosts.Post, Posts.Post)
+        post_map = Map.fromList (map (\(i, j) -> ((Posts.thread_id j, Posts.board_post_id j), (i, j))) post_pairs)
+
+        f :: Client.PostId -> (JSONPosts.Post, Posts.Post)
+        f (Client.PostId { Client.post_id = asdf1, Client.thread_id = asdf2, Client.board_post_id = asdf3 }) =
+            (\(i, j) -> (i, j { Posts.post_id = Just asdf1 })) (post_map Map.! (asdf2, asdf3))
+
+
+fileToAttachment :: Posts.Post -> JS.File -> IO Attachments.Attachment
+fileToAttachment post file = do
+    -- sha :: Text <- undefined
+
+    return Attachments.Attachment
+        { Attachments.attachment_id = Nothing
+        , Attachments.mimetype = "undefined/undefined"
+        , Attachments.creation_time = Posts.creation_time post
+        , Attachments.sha256_hash = undefined
+        , Attachments.phash = undefined -- oh shit? we need a network request for this
+            -- but here we don't want to make a network request for every file we get for every post.
+            --      - probably most of them will already be in the database!
+        , Attachments.illegal = False
+        , Attachments.post_id = fromJust $ Posts.post_id post
+        }
+
+
 processBoard :: JSONSettings -> Boards.Board -> IO ()
 processBoard settings board = do
     let catalogPath = backupDir </> "catalog.json"
@@ -233,14 +260,28 @@ processBoard settings board = do
 
             all_posts_on_board :: [(Threads.Thread, [ JSONPosts.Post ])] <- mapM (readPosts settings board) all_threads_for_board
 
-            -- putStrLn $ "Number of posts on /" ++ (Boards.pathpart board) ++ "/ " ++ (show $ length all_posts_on_board)
-            posts_result <- Client.postPosts settings (concatMap (\(t, posts) -> map (apiPostToArchivePost t) posts) all_posts_on_board)
+            let postPairs :: [ (JSONPosts.Post, Posts.Post) ] = concatMap
+                    ( \(t, posts) -> map (\p -> (p, apiPostToArchivePost t p)) posts )
+                    all_posts_on_board
 
+            -- putStrLn $ "Number of posts on /" ++ (Boards.pathpart board) ++ "/ " ++ (show $ length all_posts_on_board)
+            posts_result <- Client.postPosts settings (map snd postPairs)
             -- TODO: why doesn't it insert posts for threads that already exist? we can have new posts!
 
             case posts_result of
                 Left err -> print err
-                Right new_ids -> do
+                Right (new_ids :: [ Client.PostId ]) -> do
+                    let perfectPostPairs = setPostIdInPosts postPairs new_ids
+
+                    -- must call
+                    -- Client.postAttachments settings (all_attachments_on_board :: [ Attachments.Attachment ])
+                    -- so we need [ Attachments.Attachment ]
+                    --  JSONCommonTypes.File are properties of JSONPost.Post records.
+                    --      - So need f :: Posts.Post -> JSONCommonTypes.File -> IO [ Attachments.Attachment ]
+                    --          - f also does the sha256 calculation
+                    --
+                    --  need all JSONPost.Posts
+
                     putStrLn "Sum of post_ids:"
                     print $ sum $ map Client.post_id new_ids
                     putStrLn "Sum of board_post_ids:"
@@ -293,6 +334,14 @@ processBackupDirectory settings = do
             let boards :: [ Boards.Board ] = archived_boards ++ created_boards
             let boards_we_have_data_for = filter (\board -> Set.member (Boards.pathpart board) dirsSet) boards
             mapM_ (processBoard settings) boards_we_have_data_for
+
+
+-- TODO: detect saged threads by reading the bump time from the thread and comparing
+--  that time to the timestamp of the most recent post. If the post is newer
+--      - then the thread is being saged. Reasons it can be saged:
+--          - it's saged by a mod
+--          - the post has sage in the email field
+--          - the thread is full.
 
 
 main :: IO ()

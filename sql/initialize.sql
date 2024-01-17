@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS posts
     , email text
     , body_search_index tsvector
     , thread_id bigint NOT NULL
+--  , TODO: embed
     , CONSTRAINT unique_thread_board_id_constraint UNIQUE (thread_id, board_post_id)
     , CONSTRAINT thread_fk FOREIGN KEY (thread_id) REFERENCES threads (thread_id) ON DELETE CASCADE
     );
@@ -181,6 +182,8 @@ $$ LANGUAGE sql;
 -- 1:21 for full db (nothing inserted)
 
 
+/*
+ * Is this even needed?
 CREATE OR REPLACE FUNCTION insert_attachments_and_return_ids(
     attachments_payload attachments[])
 RETURNS TABLE (attachment_id bigint, post_id bigint, sha256_hash text) AS $$
@@ -209,6 +212,7 @@ SELECT * FROM inserted
 UNION ALL
 SELECT * FROM selected;
 $$ LANGUAGE sql;
+*/
 
 
 CREATE OR REPLACE FUNCTION fetch_top_threads(

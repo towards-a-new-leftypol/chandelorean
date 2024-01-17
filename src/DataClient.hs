@@ -13,6 +13,7 @@ module DataClient
   , getThreads
   , postThreads
   , postPosts
+  , getAttachments
   ) where
 
 import Data.Int (Int64)
@@ -37,6 +38,7 @@ import qualified JSONSettings as T
 import qualified SitesType as Sites
 import qualified BoardsType as Boards
 import qualified ThreadType as Threads
+import qualified AttachmentType as Attachments
 import qualified Common.PostsType  as Posts
 
 data HttpError
@@ -49,6 +51,14 @@ data PostId = PostId
     , board_post_id :: Int64
     , thread_id :: Int64
     } deriving (Show, Generic, FromJSON)
+
+{-
+data AttachmentId = AttachmentId
+    { attachment_id :: Int64
+    , post_id_ :: Int64
+    , sha256_hash :: Text
+    } deriving (Show, Generic, FromJSON)
+-}
 
 get :: T.JSONSettings -> String -> IO (Either HttpError LBS.ByteString)
 get settings path = do
@@ -162,6 +172,16 @@ getThreads settings board_id board_thread_ids =
         path = "/threads?board_thread_id=in.(" ++ ids ++ ")&board_id=eq." ++ show board_id
         ids :: String = intercalate "," $ map show board_thread_ids
 
+
+getAttachments :: T.JSONSettings -> [ Int64 ] -> IO (Either HttpError [ Attachments.Attachment ])
+getAttachments settings post_ids =
+    get settings path >>= return . eitherDecodeResponse
+
+    where
+        path :: String = "/attachments?post_id=in.(" ++ hashes ++ ")"
+        hashes :: String = intercalate "," $ (map show post_ids)
+
+
 postPosts
     :: T.JSONSettings
     -> [ Posts.Post ]
@@ -172,6 +192,17 @@ postPosts settings posts =
     where
       payload = encode $ object [ "new_posts" .= posts ]
 
+{-
+postAttachments
+    :: T.JSONSettings
+    -> [ Attachments.Attachment ]
+    -> IO (Either HttpError [ AttachmentId ])
+postAttachments settings attachments =
+    post settings "/rpc/insert_attachments_and_return_ids" payload True >>= return . eitherDecodeResponse
+
+    where
+      payload = encode $ object [ "attachments_payload" .= attachments ]
+-}
 
 eitherDecodeResponse :: (FromJSON a) => Either HttpError LBS.ByteString -> Either HttpError a
 eitherDecodeResponse (Left err) = Left err
