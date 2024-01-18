@@ -75,6 +75,7 @@ executable chan-delorean
                       JSONPost
                       JSONCommonTypes
                       Common.PostsType
+                      AttachmentType
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:

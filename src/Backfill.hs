@@ -217,7 +217,7 @@ concatMapM op = foldr f (pure [])
                 pure $ x_ ++ xs_
 
 
-setPostIdInPosts :: [ (JSONPosts.Post, Posts.Post) ] -> [ Client.PostId ] -> [ (JSONPosts.Post, Posts.Post) ]
+setPostIdInPosts :: [(JSONPosts.Post, Posts.Post)] -> [ Client.PostId ] -> [(JSONPosts.Post, Posts.Post)]
 setPostIdInPosts post_pairs ids = map f ids
     where
         post_map :: Map.Map (Int64, Int64) (JSONPosts.Post, Posts.Post)
@@ -240,6 +240,58 @@ fileToAttachment post file =
         , Attachments.post_id = fromJust $ Posts.post_id post
         }
 
+processFiles :: JSONSettings -> [(JSONPosts.Post, Posts.Post)] -> IO ()
+processFiles settings post_pairs = do -- perfect just means that our posts have ids, they're already inserted into the db
+    existing_attachments_result <- Client.getAttachments settings (map (fromJust . Posts.post_id . snd) post_pairs)
+
+    case existing_attachments_result of
+        Left err -> do
+            putStrLn $ "Error fetching boards: " ++ show err
+            exitFailure
+        Right existing_attachments -> do
+            let map_existing :: Map.Map Int64 [ Attachments.Attachment ] =
+                    foldl (insertRecord Attachments.post_id) Map.empty existing_attachments
+
+            -- have things like sha256 already
+            -- how do we know that a `elem` attachments_on_board and a `elem` existing_attachments
+                    -- can group existing_attachments into `map_existing :: Map post_id -> Set Attachment`
+                    -- same with attachments_on_board into `map_should_exist :: Map post_id -> Set Attachment`
+                    --
+                    -- then run through the keys and compare size of the sets
+
+            let attachments_on_board :: [(JS.File, Attachments.Attachment)] = concatMap
+                    (\(p, q) -> map (\x -> (x, fileToAttachment q x)) (maybe [] id $ JSONPosts.files p))
+                    post_pairs
+
+            let map_should_exist :: Map.Map Int64 [(JS.File, Attachments.Attachment)] =
+                    foldl (insertRecord (Attachments.post_id . snd)) Map.empty attachments_on_board
+
+            let to_insert_map = Map.filterWithKey (compareAttMaps map_existing) map_should_exist
+
+            -- TODO: Concat all values in to_insert_map and
+            -- go ahead and compute sha256 and phashes on them.
+
+            return ()
+
+    where
+        insertRecord
+            :: Ord a
+            => (b -> a)
+            -> Map.Map a [b]
+            -> b
+            -> Map.Map a [b]
+        insertRecord getKey accMap x =
+            let pid = getKey x
+                l = Map.findWithDefault [] pid accMap
+            in Map.insert pid (x : l) accMap
+
+        compareAttMaps
+            :: Map.Map Int64 [ Attachments.Attachment ]
+            -> Int64
+            -> [(JS.File, Attachments.Attachment)]
+            -> Bool
+        compareAttMaps existing k v
+            = (maybe (-1) length (Map.lookup k existing)) /= length v
 
 processBoard :: JSONSettings -> Boards.Board -> IO ()
 processBoard settings board = do
@@ -260,62 +312,27 @@ processBoard settings board = do
                     ( \(t, posts) -> map (\p -> (p, apiPostToArchivePost t p)) posts )
                     all_posts_on_board
 
-            -- putStrLn $ "Number of posts on /" ++ (Boards.pathpart board) ++ "/ " ++ (show $ length all_posts_on_board)
             posts_result <- Client.postPosts settings (map snd post_pairs)
-            -- TODO: why doesn't it insert posts for threads that already exist? we can have new posts!
 
             case posts_result of
                 Left err -> print err
                 Right (new_ids :: [ Client.PostId ]) -> do
-                    let perfect_post_pairs = setPostIdInPosts post_pairs new_ids
-
-                    existingAttachments <- Client.getAttachments settings (map (fromJust . Posts.post_id . snd) perfect_post_pairs)
-
-                    let attachments_on_board = concatMap
-                            (\(p, q) -> map (fileToAttachment q) (maybe [] id $ JSONPosts.files p))
-                            perfect_post_pairs
-
-                    -- need to get all the attachments in attachments_on_board that are not in existingAttachments
-
-                    -- must call
-                    -- Client.postAttachments settings (all_attachments_on_board :: [ Attachments.Attachment ])
-                    -- so we need [ Attachments.Attachment ]
-                    --  JSONCommonTypes.File are properties of JSONPost.Post records.
-                    --      - So need f :: Posts.Post -> JSONCommonTypes.File -> IO [ Attachments.Attachment ]
-                    --          - f also does the sha256 calculation
-                    --
-                    --  need all JSONPost.Posts
-
                     putStrLn "Sum of post_ids:"
                     print $ sum $ map Client.post_id new_ids
                     putStrLn "Sum of board_post_ids:"
                     print $ sum $ map Client.board_post_id new_ids
 
-            -- max:   18,645
-            -- min:   147
-            -- total: 191,628
-            --
-            -- f :: Threads.Thread -> [ Posts.Post ]
-            -- for each thread we have to call a function that
-            --  - reads the thread under the board directory:
-            --      - t = backupDir </> "res' </> ((show $ no thread) ++ ".json")
-            --
-            -- do we want an ensurethreads?
-            --      - then for each thread, grab the posts from json and see if they exist
-            --      - this might have to be done 350 times per board
-            --
-            -- So we need a function (Threads.Thread, [ Posts.Post ]) -> ??? [ new Post type? ]
-            --      - why?
-            --          - well because the new post type will have a thread_id, which is known to be unique
-            --          - so we need to query the db for this same (thread_id (from Thread), no (from Post))
-            return ()
+                    let perfect_post_pairs = setPostIdInPosts post_pairs new_ids
+
+                    processFiles settings perfect_post_pairs
+
         Left errMsg    ->
             putStrLn $ "Failed to parse the JSON file in directory: "
                 ++ (Boards.pathpart board) ++ ". Error: " ++ errMsg
 
-  where
-    backupDir :: FilePath
-    backupDir = backup_read_root settings </> (Boards.pathpart board)
+    where
+        backupDir :: FilePath
+        backupDir = backup_read_root settings </> (Boards.pathpart board)
 
 
 processBackupDirectory :: JSONSettings -> IO ()
