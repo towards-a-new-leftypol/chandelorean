@@ -5,7 +5,7 @@ let
 
   f = { mkDerivation, base, stdenv, cabal-install,
         aeson, safe-exceptions, bytestring, cmdargs,
-        http-conduit
+        http-conduit, cryptonite, memory, mime-types
       }:
       mkDerivation {
         pname = "chan-delorean";
@@ -15,6 +15,7 @@ let
         isExecutable = true;
         executableHaskellDepends = [
           base safe-exceptions aeson bytestring cmdargs http-conduit
+          cryptonite memory mime-types
         ];
         testHaskellDepends = [ cabal-install ];
         license = "unknown";

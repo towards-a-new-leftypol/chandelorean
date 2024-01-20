@@ -20,6 +20,9 @@ import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import Data.Time.Clock (UTCTime)
 import qualified Data.Map as Map
 import Data.Maybe (fromJust)
+import Data.Text (Text, unpack)
+import Data.Text.Encoding (decodeUtf8)
+import Network.Mime (defaultMimeLookup, defaultMimeType)
 
 import JSONParsing
 import JSONSettings
@@ -29,8 +32,9 @@ import qualified DataClient as Client
 import qualified SitesType  as Sites
 import qualified BoardsType as Boards
 import qualified ThreadType as Threads
-import qualified AttachmentType as Attachments
+import qualified AttachmentType as At
 import qualified Common.PostsType as Posts
+import qualified Hash as Hash
 
 newtype SettingsCLI = SettingsCLI
   { jsonFile :: FilePath
@@ -228,17 +232,28 @@ setPostIdInPosts post_pairs ids = map f ids
             (\(i, j) -> (i, j { Posts.post_id = Just asdf1 })) (post_map Map.! (asdf2, asdf3))
 
 
-fileToAttachment :: Posts.Post -> JS.File -> Attachments.Attachment
+fileToAttachment :: Posts.Post -> JS.File -> At.Attachment
 fileToAttachment post file =
-    Attachments.Attachment
-        { Attachments.attachment_id = Nothing
-        , Attachments.mimetype = maybe "undefined/undefined" id (JS.mime file)
-        , Attachments.creation_time = Posts.creation_time post
-        , Attachments.sha256_hash = undefined
-        , Attachments.phash = undefined
-        , Attachments.illegal = False
-        , Attachments.post_id = fromJust $ Posts.post_id post
+    At.Attachment
+        { At.attachment_id = Nothing
+        , At.mimetype = maybe "undefined/undefined" id (JS.mime file)
+        , At.creation_time = Posts.creation_time post
+        , At.sha256_hash = undefined
+        , At.phash = undefined
+        , At.illegal = False
+        , At.post_id = fromJust $ Posts.post_id post
+        , At.resolution = dim
         }
+
+    where
+      dim = (JS.w file) >>= \w ->
+        ((JS.h file) >>= \h ->
+          Just $ At.Dimension w h)
+
+
+getMimeType :: Text -> Text
+getMimeType ext = decodeUtf8 $ defaultMimeLookup ext
+
 
 processFiles :: JSONSettings -> [(JSONPosts.Post, Posts.Post)] -> IO ()
 processFiles settings post_pairs = do -- perfect just means that our posts have ids, they're already inserted into the db
@@ -249,8 +264,8 @@ processFiles settings post_pairs = do -- perfect just means that our posts have 
             putStrLn $ "Error fetching boards: " ++ show err
             exitFailure
         Right existing_attachments -> do
-            let map_existing :: Map.Map Int64 [ Attachments.Attachment ] =
-                    foldl (insertRecord Attachments.post_id) Map.empty existing_attachments
+            let map_existing :: Map.Map Int64 [ At.Attachment ] =
+                    foldl (insertRecord At.post_id) Map.empty existing_attachments
 
             -- have things like sha256 already
             -- how do we know that a `elem` attachments_on_board and a `elem` existing_attachments
@@ -258,22 +273,79 @@ processFiles settings post_pairs = do -- perfect just means that our posts have 
                     -- same with attachments_on_board into `map_should_exist :: Map post_id -> Set Attachment`
                     --
                     -- then run through the keys and compare size of the sets
+            let attachments_on_board :: [(At.Paths, At.Attachment)] =
+                    concatMap parseAttachments post_pairs
 
-            let attachments_on_board :: [(JS.File, Attachments.Attachment)] = concatMap
-                    (\(p, q) -> map (\x -> (x, fileToAttachment q x)) (maybe [] id $ JSONPosts.files p))
-                    post_pairs
-
-            let map_should_exist :: Map.Map Int64 [(JS.File, Attachments.Attachment)] =
-                    foldl (insertRecord (Attachments.post_id . snd)) Map.empty attachments_on_board
+            let map_should_exist :: Map.Map Int64 [(At.Paths, At.Attachment)] =
+                    foldl (insertRecord (At.post_id . snd)) Map.empty attachments_on_board
 
             let to_insert_map = Map.filterWithKey (compareAttMaps map_existing) map_should_exist
 
+            let to_insert = foldr (++) [] $ Map.elems to_insert_map
+
+            have_hash <- mapM computeAttachmentHash to_insert
+
+            let existing_hashes :: Set.Set Text =
+                    Set.fromList $ map At.sha256_hash existing_attachments
+
+            let to_insert_ = filter ((`Set.notMember` existing_hashes) . At.sha256_hash) have_hash
+
             -- TODO: Concat all values in to_insert_map and
             -- go ahead and compute sha256 and phashes on them.
+            -- ensure that the sha256 in to_insert_map is not in map_existing
 
             return ()
 
     where
+        computeAttachmentHash :: (At.Paths, At.Attachment) -> IO At.Attachment
+        computeAttachmentHash (p, q) = do
+            let f = backup_read_root settings <> "/" <> unpack (At.file_path p)
+            sha256_sum <- Hash.computeSHA256 f
+
+            return q { At.sha256_hash = sha256_sum }
+
+        computeAttachmentPhash :: (At.Paths, At.Attachment) -> IO At.Attachment
+        computeAttachmentPhash = undefined
+
+        parseLegacyPaths :: JSONPosts.Post -> Maybe At.Paths
+        parseLegacyPaths post = do
+            tim <- JSONPosts.tim post
+
+            ext <- JSONPosts.ext post
+
+            let board = JSONPosts.board post
+
+            let file_path = board <> "/src/" <> tim <> ext
+            let thumbnail_path = board <> "/thumb/" <> tim <> ext
+
+            Just $ At.Paths file_path thumbnail_path
+
+
+        parseAttachments :: (JSONPosts.Post, Posts.Post) -> [(At.Paths, At.Attachment)]
+        parseAttachments (p, q) =
+            case JSONPosts.files p of
+                Just files -> map (\x -> (At.Paths (JS.file_path x) (JS.thumb_path x), fileToAttachment q x)) files
+                Nothing ->
+                    case parseLegacyPaths p of
+                        Nothing -> []
+                        Just paths ->
+                            let
+                                dim = (JSONPosts.w p) >>= \w -> ((JSONPosts.h p) >>= \h -> Just $ At.Dimension w h)
+                                mime = maybe (decodeUtf8 defaultMimeType) getMimeType $ JSONPosts.ext p
+                            in
+                                ( paths
+                                , At.Attachment
+                                    { At.attachment_id = Nothing
+                                    , At.mimetype = mime
+                                    , At.creation_time = Posts.creation_time q
+                                    , At.sha256_hash = undefined
+                                    , At.phash = undefined
+                                    , At.illegal = False
+                                    , At.post_id = fromJust $ Posts.post_id q
+                                    , At.resolution = dim
+                                    }
+                                ) : []
+
         insertRecord
             :: Ord a
             => (b -> a)
@@ -286,9 +358,9 @@ processFiles settings post_pairs = do -- perfect just means that our posts have 
             in Map.insert pid (x : l) accMap
 
         compareAttMaps
-            :: Map.Map Int64 [ Attachments.Attachment ]
+            :: Map.Map Int64 [ At.Attachment ]
             -> Int64
-            -> [(JS.File, Attachments.Attachment)]
+            -> [(At.Paths, At.Attachment)]
             -> Bool
         compareAttMaps existing k v
             = (maybe (-1) length (Map.lookup k existing)) /= length v

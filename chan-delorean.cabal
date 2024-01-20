@@ -76,6 +76,7 @@ executable chan-delorean
                       JSONCommonTypes
                       Common.PostsType
                       AttachmentType
+                      Hash
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
@@ -92,7 +93,10 @@ executable chan-delorean
                       http-conduit,
                       safe-exceptions,
                       http-types,
-                      time
+                      time,
+                      cryptonite,
+                      memory,
+                      mime-types
 
     -- Directories containing source files.
     hs-source-dirs:   src

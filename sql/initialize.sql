@@ -10,6 +10,7 @@ WHERE opc.oid >= 16384 AND NOT amvalidate(opc.oid);
 
 -- </bktree/sql/init.sql>
 
+DROP TYPE IF EXISTS dimension CASCADE;
 DROP TABLE IF EXISTS sites CASCADE;
 DROP TABLE IF EXISTS boards CASCADE;
 DROP TABLE IF EXISTS threads CASCADE;
@@ -100,6 +101,11 @@ ON posts
 FOR EACH ROW
 EXECUTE FUNCTION update_post_body_search_index();
 
+CREATE TYPE dimension AS
+    ( width  int
+    , height int
+    );
+
 CREATE TABLE IF NOT EXISTS attachments
     ( attachment_id bigserial primary key
     , mimetype text NOT NULL
@@ -108,6 +114,7 @@ CREATE TABLE IF NOT EXISTS attachments
     , phash bigint
     , illegal boolean NOT NULL DEFAULT false
     , post_id bigint NOT NULL
+    , resolution dimension
     , CHECK
         (
             (mimetype NOT IN ('image/jpeg', 'image/png', 'image/gif'))

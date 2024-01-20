@@ -22,10 +22,17 @@ data Post = Post
     , locked         :: Maybe Int
     , cyclical       :: Maybe J.Cyclical
     , last_modified  :: Int
-    , board          :: String
+    , board          :: Text
     , files          :: Maybe [J.File]
     , resto          :: Int
     , unique_ips     :: Maybe Int
+
+    -- legacy attributes
+    , filename       :: Maybe Text
+    , h              :: Maybe Int
+    , w              :: Maybe Int
+    , ext            :: Maybe Text
+    , tim            :: Maybe Text
     } deriving (Show, Generic)
 
 instance FromJSON Post
