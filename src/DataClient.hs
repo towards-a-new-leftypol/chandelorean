@@ -14,10 +14,17 @@ module DataClient
   , postThreads
   , postPosts
   , getAttachments
+  , postAttachments
   ) where
 
 import Data.Int (Int64)
-import Network.HTTP.Simple
+import Network.HTTP.Simple hiding (httpLbs)
+import Network.HTTP.Client
+    ( newManager
+    , managerSetMaxHeaderLength
+    , httpLbs
+    )
+import Network.HTTP.Client.Conduit (defaultManagerSettings)
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Lazy.Char8 as LC8
 import Network.HTTP.Types.Status (statusCode)
@@ -66,7 +73,10 @@ get settings path = do
     initReq <- parseRequest requestUrl
     let req = setRequestHeader "Authorization" [C8.pack $ "Bearer " ++ T.jwt settings] initReq
     putStrLn $ "calling " ++ requestUrl
-    handleHttp (httpLBS req)
+
+    let man_settings = managerSetMaxHeaderLength (16384 * 4) defaultManagerSettings
+    manager <- newManager man_settings
+    handleHttp (httpLbs req manager)
 
 
 post
@@ -106,7 +116,9 @@ handleHttp action = do
             in if 200 <= (statusCode $ getResponseStatus response) && (statusCode $ getResponseStatus response) < 300
                then return $ Right responseBody
                else return $ Left (StatusCodeError (statusCode $ getResponseStatus response) responseBody)
-        Left e -> return $ Left $ HttpException e
+        Left e -> do
+            putStrLn "Some nasty http exception must have occurred"
+            return $ Left $ HttpException e
 
 
 getSiteBoards :: T.JSONSettings -> Int -> IO (Either HttpError [ Boards.Board ])
@@ -180,6 +192,17 @@ getAttachments settings post_ids =
     where
         path :: String = "/attachments?post_id=in.(" ++ hashes ++ ")"
         hashes :: String = intercalate "," $ (map show post_ids)
+
+
+postAttachments
+    :: T.JSONSettings
+    -> [ Attachments.Attachment ]
+    -> IO (Either HttpError [ Attachments.Attachment ])
+postAttachments settings attachments =
+    post settings "/attachments" payload True >>= return . eitherDecodeResponse
+
+    where
+      payload = encode attachments
 
 
 postPosts

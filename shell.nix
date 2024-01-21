@@ -3,9 +3,13 @@ let
 
   inherit (nixpkgs) pkgs;
 
+  perceptual-hash = import ./nix-support/perceptual-hash.nix { inherit nixpkgs; };
+  http-conduit = import ./nix-support/http-conduit.nix { inherit nixpkgs; };
+
   f = { mkDerivation, base, stdenv, cabal-install,
         aeson, safe-exceptions, bytestring, cmdargs,
-        http-conduit, cryptonite, memory, mime-types
+        http-conduit, cryptonite, memory, mime-types,
+        perceptual-hash
       }:
       mkDerivation {
         pname = "chan-delorean";
@@ -15,7 +19,7 @@ let
         isExecutable = true;
         executableHaskellDepends = [
           base safe-exceptions aeson bytestring cmdargs http-conduit
-          cryptonite memory mime-types
+          cryptonite memory mime-types perceptual-hash
         ];
         testHaskellDepends = [ cabal-install ];
         license = "unknown";
@@ -27,7 +31,10 @@ let
 
   variant = if doBenchmark then pkgs.haskell.lib.doBenchmark else pkgs.lib.id;
 
-  drv = variant (haskellPackages.callPackage f {});
+  drv = variant (haskellPackages.callPackage f {
+    perceptual-hash = perceptual-hash;
+    http-conduit = http-conduit.http-conduit;
+  });
 
   enhancedDrv = if pkgs.lib.inNixShell
     then drv.env.overrideAttrs (oldAttrs: {

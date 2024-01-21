@@ -77,6 +77,7 @@ executable chan-delorean
                       Common.PostsType
                       AttachmentType
                       Hash
+                      Data.WordUtil
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
@@ -90,13 +91,15 @@ executable chan-delorean
                       filepath,
                       containers,
                       text,
+                      http-client,
                       http-conduit,
                       safe-exceptions,
                       http-types,
                       time,
                       cryptonite,
                       memory,
-                      mime-types
+                      mime-types,
+                      perceptual-hash
 
     -- Directories containing source files.
     hs-source-dirs:   src

@@ -23,6 +23,7 @@ import Data.Maybe (fromJust)
 import Data.Text (Text, unpack)
 import Data.Text.Encoding (decodeUtf8)
 import Network.Mime (defaultMimeLookup, defaultMimeType)
+import PerceptualHash (fileHash)
 
 import JSONParsing
 import JSONSettings
@@ -35,6 +36,7 @@ import qualified ThreadType as Threads
 import qualified AttachmentType as At
 import qualified Common.PostsType as Posts
 import qualified Hash as Hash
+import qualified Data.WordUtil as Words
 
 newtype SettingsCLI = SettingsCLI
   { jsonFile :: FilePath
@@ -261,7 +263,7 @@ processFiles settings post_pairs = do -- perfect just means that our posts have 
 
     case existing_attachments_result of
         Left err -> do
-            putStrLn $ "Error fetching boards: " ++ show err
+            putStrLn $ "Error fetching attachments: " ++ show err
             exitFailure
         Right existing_attachments -> do
             let map_existing :: Map.Map Int64 [ At.Attachment ] =
@@ -290,6 +292,8 @@ processFiles settings post_pairs = do -- perfect just means that our posts have 
 
             let to_insert_ = filter ((`Set.notMember` existing_hashes) . At.sha256_hash) have_hash
 
+            _ <- Client.postAttachments settings to_insert_
+
             -- TODO: Concat all values in to_insert_map and
             -- go ahead and compute sha256 and phashes on them.
             -- ensure that the sha256 in to_insert_map is not in map_existing
@@ -300,12 +304,22 @@ processFiles settings post_pairs = do -- perfect just means that our posts have 
         computeAttachmentHash :: (At.Paths, At.Attachment) -> IO At.Attachment
         computeAttachmentHash (p, q) = do
             let f = backup_read_root settings <> "/" <> unpack (At.file_path p)
+
             sha256_sum <- Hash.computeSHA256 f
 
-            return q { At.sha256_hash = sha256_sum }
+            either_phash <- fileHash f
 
-        computeAttachmentPhash :: (At.Paths, At.Attachment) -> IO At.Attachment
-        computeAttachmentPhash = undefined
+            phash :: Int64 <- case either_phash of
+                        Left err_str -> do
+                            putStrLn $ "Failed to compute phash for file " ++ (unpack sha256_sum) ++ " " ++ f ++ " " ++ err_str
+                            return (-1)
+                        Right phash_w -> return $ Words.wordToSignedInt64 phash_w
+
+
+            return q
+                { At.sha256_hash = sha256_sum
+                , At.phash = phash
+                }
 
         parseLegacyPaths :: JSONPosts.Post -> Maybe At.Paths
         parseLegacyPaths post = do
