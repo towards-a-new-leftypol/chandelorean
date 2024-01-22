@@ -115,12 +115,9 @@ CREATE TABLE IF NOT EXISTS attachments
     , illegal boolean NOT NULL DEFAULT false
     , post_id bigint NOT NULL
     , resolution dimension
-    , CHECK
-        (
-            (mimetype NOT IN ('image/jpeg', 'image/png', 'image/gif'))
-            OR
-            (phash IS NOT NULL)
-        )
+    , file_extension text
+    , original_filename text
+    , file_size_bytes int
     , CONSTRAINT post_fk FOREIGN KEY (post_id) REFERENCES posts (post_id) ON DELETE CASCADE
     );
 CREATE INDEX attachments_creation_time_idx  ON attachments (creation_time);

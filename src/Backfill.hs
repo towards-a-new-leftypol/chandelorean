@@ -21,9 +21,10 @@ import Data.Time.Clock (UTCTime)
 import qualified Data.Map as Map
 import Data.Maybe (fromJust)
 import Data.Text (Text, unpack)
+import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8)
 import Data.List (isSuffixOf)
-import Network.Mime (defaultMimeLookup, defaultMimeType)
+import Network.Mime (defaultMimeLookup)
 import PerceptualHash (fileHash)
 
 import JSONParsing
@@ -238,16 +239,23 @@ setPostIdInPosts post_pairs ids = map f ids
 fileToAttachment :: Posts.Post -> JS.File -> At.Attachment
 fileToAttachment post file =
     At.Attachment
-        { At.mimetype = maybe "undefined/undefined" id (JS.mime file)
+        { At.mimetype = maybe guessed_mime id (JS.mime file)
         , At.creation_time = Posts.creation_time post
         , At.sha256_hash = undefined
         , At.phash = Nothing
         , At.illegal = False
         , At.post_id = fromJust $ Posts.post_id post
         , At.resolution = dim
+        , At.file_extension = Just extension
+        , At.original_filename = Just $ JS.filename file <> "." <> extension
+        , At.file_size_bytes = JS.fsize file
         }
 
     where
+      extension = JS.ext file
+
+      guessed_mime = getMimeType extension
+
       dim = (JS.w file) >>= \w ->
         ((JS.h file) >>= \h ->
           Just $ At.Dimension w h)
@@ -340,8 +348,14 @@ processFiles settings post_pairs = do -- perfect just means that our posts have 
                                 putStrLn $ "Failed to compute phash for file " ++ (unpack sha256_sum) ++ " " ++ f ++ " " ++ err_str
                                 return Nothing
                             Right phash_w -> do
-                                putStrLn $ "phash: " ++ show phash_w
-                                return $ Just $ Words.wordToSignedInt64 phash_w
+                                let phash_i = Words.wordToSignedInt64 phash_w
+
+                                if phash_i == 0 then do
+                                    putStrLn $ "phash is 0 for file " ++ (unpack sha256_sum) ++ " " ++ f
+                                    return Nothing
+                                else do
+                                    putStrLn $ "phash: " ++ show phash_w
+                                    return $ Just $ Words.wordToSignedInt64 phash_w
 
                     False -> return Nothing
 
@@ -351,18 +365,36 @@ processFiles settings post_pairs = do -- perfect just means that our posts have 
                 , At.phash = phash
                 }
 
-        parseLegacyPaths :: JSONPosts.Post -> Maybe At.Paths
+        parseLegacyPaths :: JSONPosts.Post -> Maybe (At.Paths, At.Attachment)
         parseLegacyPaths post = do
             tim <- JSONPosts.tim post
-
             ext <- JSONPosts.ext post
+            filename <- JSONPosts.filename post
+            size <- JSONPosts.fsize post
 
-            let board = JSONPosts.board post
+            let
+                board = JSONPosts.board post
+                file_path = withPathPrefix $ board <> "/src/" <> tim <> ext
+                thumbnail_path = withPathPrefix $ board <> "/thumb/" <> tim <> ext
 
-            let file_path = withPathPrefix $ board <> "/src/" <> tim <> ext
-            let thumbnail_path = withPathPrefix $ board <> "/thumb/" <> tim <> ext
+                p = At.Paths file_path thumbnail_path
 
-            Just $ At.Paths file_path thumbnail_path
+                mime = getMimeType ext
+
+                attachment = At.Attachment
+                    { At.mimetype = mime
+                    , At.creation_time = undefined
+                    , At.sha256_hash = undefined
+                    , At.phash = Nothing
+                    , At.illegal = False
+                    , At.post_id = undefined
+                    , At.resolution = undefined
+                    , At.file_extension = Just $ T.drop 1 ext
+                    , At.original_filename = Just $ filename <> ext
+                    , At.file_size_bytes = size
+                    }
+
+            return (p, attachment)
 
 
         notDeleted :: (At.Paths, At.Attachment) -> Bool
@@ -382,20 +414,15 @@ processFiles settings post_pairs = do -- perfect just means that our posts have 
                 Nothing ->
                     case parseLegacyPaths p of
                         Nothing -> []
-                        Just paths ->
+                        Just (paths, a) ->
                             let
                                 dim = (JSONPosts.w p) >>= \w -> ((JSONPosts.h p) >>= \h -> Just $ At.Dimension w h)
-                                mime = maybe (decodeUtf8 defaultMimeType) getMimeType $ JSONPosts.ext p
                             in
                                 ( paths
-                                , At.Attachment
-                                    { At.mimetype = mime
-                                    , At.creation_time = Posts.creation_time q
-                                    , At.sha256_hash = undefined
-                                    , At.phash = Nothing
-                                    , At.illegal = False
-                                    , At.post_id = fromJust $ Posts.post_id q
+                                , a
+                                    { At.creation_time = Posts.creation_time q
                                     , At.resolution = dim
+                                    , At.post_id = fromJust $ Posts.post_id q
                                     }
                                 ) : []
 

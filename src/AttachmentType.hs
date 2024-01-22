@@ -22,11 +22,14 @@ data Paths = Paths
   } deriving (Show)
 
 data Attachment = Attachment
-    { mimetype        :: Text
-    , creation_time   :: UTCTime
-    , sha256_hash     :: Text
-    , phash           :: Maybe Int64
-    , illegal         :: Bool
-    , post_id         :: Int64
-    , resolution      :: Maybe Dimension
+    { mimetype          :: Text
+    , creation_time     :: UTCTime
+    , sha256_hash       :: Text
+    , phash             :: Maybe Int64
+    , illegal           :: Bool
+    , post_id           :: Int64
+    , resolution        :: Maybe Dimension
+    , file_extension    :: Maybe Text
+    , original_filename :: Maybe Text
+    , file_size_bytes   :: Int
     } deriving (Show, Generic, FromJSON, ToJSON)
