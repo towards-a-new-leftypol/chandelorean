@@ -17,13 +17,16 @@ module DataClient
   , postAttachments
   ) where
 
+import Control.Monad (forM)
 import Data.Int (Int64)
+import Data.Either (lefts, rights)
 import Network.HTTP.Simple hiding (httpLbs)
 import Network.HTTP.Client
     ( newManager
     , managerSetMaxHeaderLength
     , httpLbs
     )
+import qualified Data.ByteString.Lazy.Char8 as BL
 import Network.HTTP.Client.Conduit (defaultManagerSettings)
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Lazy.Char8 as LC8
@@ -185,20 +188,43 @@ getThreads settings board_id board_thread_ids =
         ids :: String = intercalate "," $ map show board_thread_ids
 
 
-getAttachments :: T.JSONSettings -> [ Int64 ] -> IO (Either HttpError [ Attachments.Attachment ])
-getAttachments settings post_ids =
+-- | Splits a list into chunks of a given size.
+chunkList :: Int -> [a] -> [[a]]
+chunkList _ [] = []
+chunkList n xs = let (chunk, rest) = splitAt n xs in chunk : chunkList n rest
+
+
+getAttachments :: T.JSONSettings -> [Int64] -> IO (Either HttpError [Attachments.Attachment])
+getAttachments settings post_ids = do
+    results <- forM (chunkList chunkSize post_ids) (getAttachmentsChunk settings)
+    return $ combineResults results
+  where
+    chunkSize = 1000
+
+
+-- | Combines the results, prioritizing errors.
+combineResults :: [Either e [b]] -> Either e [b]
+combineResults results =
+    case lefts results of
+        [] -> Right (concat (rights results))
+        (err:_) -> Left err
+
+
+-- | Function to handle each chunk.
+getAttachmentsChunk :: T.JSONSettings -> [Int64] -> IO (Either HttpError [Attachments.Attachment])
+getAttachmentsChunk settings chunk =
     get settings path >>= return . eitherDecodeResponse
 
     where
-        path :: String = "/attachments?post_id=in.(" ++ hashes ++ ")"
-        hashes :: String = intercalate "," $ (map show post_ids)
+        path = "/attachments?post_id=in.(" ++ intercalate "," (map show chunk) ++ ")"
 
 
 postAttachments
     :: T.JSONSettings
     -> [ Attachments.Attachment ]
     -> IO (Either HttpError [ Attachments.Attachment ])
-postAttachments settings attachments =
+postAttachments settings attachments = do
+    BL.putStrLn payload
     post settings "/attachments" payload True >>= return . eitherDecodeResponse
 
     where

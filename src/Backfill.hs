@@ -22,6 +22,7 @@ import qualified Data.Map as Map
 import Data.Maybe (fromJust)
 import Data.Text (Text, unpack)
 import Data.Text.Encoding (decodeUtf8)
+import Data.List (isSuffixOf)
 import Network.Mime (defaultMimeLookup, defaultMimeType)
 import PerceptualHash (fileHash)
 
@@ -237,11 +238,10 @@ setPostIdInPosts post_pairs ids = map f ids
 fileToAttachment :: Posts.Post -> JS.File -> At.Attachment
 fileToAttachment post file =
     At.Attachment
-        { At.attachment_id = Nothing
-        , At.mimetype = maybe "undefined/undefined" id (JS.mime file)
+        { At.mimetype = maybe "undefined/undefined" id (JS.mime file)
         , At.creation_time = Posts.creation_time post
         , At.sha256_hash = undefined
-        , At.phash = undefined
+        , At.phash = Nothing
         , At.illegal = False
         , At.post_id = fromJust $ Posts.post_id post
         , At.resolution = dim
@@ -257,6 +257,14 @@ getMimeType :: Text -> Text
 getMimeType ext = decodeUtf8 $ defaultMimeLookup ext
 
 
+phash_mimetypes :: Set.Set Text
+phash_mimetypes = Set.fromList
+    [ "image/jpeg"
+    , "image/png"
+    , "image/gif"
+    ]
+
+
 processFiles :: JSONSettings -> [(JSONPosts.Post, Posts.Post)] -> IO ()
 processFiles settings post_pairs = do -- perfect just means that our posts have ids, they're already inserted into the db
     existing_attachments_result <- Client.getAttachments settings (map (fromJust . Posts.post_id . snd) post_pairs)
@@ -269,51 +277,73 @@ processFiles settings post_pairs = do -- perfect just means that our posts have 
             let map_existing :: Map.Map Int64 [ At.Attachment ] =
                     foldl (insertRecord At.post_id) Map.empty existing_attachments
 
-            -- have things like sha256 already
-            -- how do we know that a `elem` attachments_on_board and a `elem` existing_attachments
-                    -- can group existing_attachments into `map_existing :: Map post_id -> Set Attachment`
-                    -- same with attachments_on_board into `map_should_exist :: Map post_id -> Set Attachment`
-                    --
-                    -- then run through the keys and compare size of the sets
             let attachments_on_board :: [(At.Paths, At.Attachment)] =
                     concatMap parseAttachments post_pairs
 
             let map_should_exist :: Map.Map Int64 [(At.Paths, At.Attachment)] =
                     foldl (insertRecord (At.post_id . snd)) Map.empty attachments_on_board
 
+            -- basically we have a map of the post_id to attachments for that post_id
+            -- compare the number of attachments under each post_id in the map
+            -- assembled from the API with the map assembled from data in the db.
+            -- if the number of files differ, then likely there are new attachments.
+            -- This isn't fool-proof (there are probably weird cases where the
+            -- number of files for a post is the same but the files themselves
+            -- are different) but it's a quicker way of seeing which attachments
+            -- need to be saved than finding the sha256 hash of every single existing
+            -- file.
             let to_insert_map = Map.filterWithKey (compareAttMaps map_existing) map_should_exist
 
             let to_insert = foldr (++) [] $ Map.elems to_insert_map
 
-            have_hash <- mapM computeAttachmentHash to_insert
+            to_insert_exist <- filterM attachmentFileExists to_insert
+
+            with_hashes <- mapM computeAttachmentHash to_insert_exist
 
             let existing_hashes :: Set.Set Text =
                     Set.fromList $ map At.sha256_hash existing_attachments
 
-            let to_insert_ = filter ((`Set.notMember` existing_hashes) . At.sha256_hash) have_hash
+            let to_insert_ = filter ((`Set.notMember` existing_hashes) . At.sha256_hash) with_hashes
 
-            _ <- Client.postAttachments settings to_insert_
+            attachments_result <- Client.postAttachments settings to_insert_
 
-            -- TODO: Concat all values in to_insert_map and
-            -- go ahead and compute sha256 and phashes on them.
-            -- ensure that the sha256 in to_insert_map is not in map_existing
+            case attachments_result of
+                Left err -> do
+                    putStrLn $ "Error posting attachments: " ++ show err
+                    exitFailure
 
-            return ()
+                Right saved -> do
+                    putStrLn $ "Saved " ++ (show $ length saved) ++ " attachments!"
 
     where
+        attachmentFileExists :: (At.Paths, At.Attachment) -> IO Bool
+        attachmentFileExists (p, _) = doesFileExist (At.file_path p)
+
         computeAttachmentHash :: (At.Paths, At.Attachment) -> IO At.Attachment
         computeAttachmentHash (p, q) = do
-            let f = backup_read_root settings <> "/" <> unpack (At.file_path p)
+            let f = At.file_path p
+
+            putStrLn $ "Reading " ++ f
+            -- putStrLn $ show p
+            -- putStrLn $ show (q { At.sha256_hash = "undefined" })
 
             sha256_sum <- Hash.computeSHA256 f
 
-            either_phash <- fileHash f
+            putStrLn $ "SHA-256: " ++ unpack sha256_sum
 
-            phash :: Int64 <- case either_phash of
-                        Left err_str -> do
-                            putStrLn $ "Failed to compute phash for file " ++ (unpack sha256_sum) ++ " " ++ f ++ " " ++ err_str
-                            return (-1)
-                        Right phash_w -> return $ Words.wordToSignedInt64 phash_w
+            phash :: Maybe Int64 <-
+                case (At.mimetype q) `Set.member` phash_mimetypes of
+                    True -> do
+                        either_phash <- fileHash f
+                        case either_phash of
+                            Left err_str -> do
+                                putStrLn $ "Failed to compute phash for file " ++ (unpack sha256_sum) ++ " " ++ f ++ " " ++ err_str
+                                return Nothing
+                            Right phash_w -> do
+                                putStrLn $ "phash: " ++ show phash_w
+                                return $ Just $ Words.wordToSignedInt64 phash_w
+
+                    False -> return Nothing
 
 
             return q
@@ -329,16 +359,26 @@ processFiles settings post_pairs = do -- perfect just means that our posts have 
 
             let board = JSONPosts.board post
 
-            let file_path = board <> "/src/" <> tim <> ext
-            let thumbnail_path = board <> "/thumb/" <> tim <> ext
+            let file_path = withPathPrefix $ board <> "/src/" <> tim <> ext
+            let thumbnail_path = withPathPrefix $ board <> "/thumb/" <> tim <> ext
 
             Just $ At.Paths file_path thumbnail_path
 
 
+        notDeleted :: (At.Paths, At.Attachment) -> Bool
+        notDeleted (p, _) = not $ "deleted" `isSuffixOf` (At.file_path p)
+
+
+        withPathPrefix :: Text -> FilePath
+        withPathPrefix = ((<>) $ backup_read_root settings) . unpack
+
         parseAttachments :: (JSONPosts.Post, Posts.Post) -> [(At.Paths, At.Attachment)]
-        parseAttachments (p, q) =
+        parseAttachments (p, q) = filter notDeleted $
             case JSONPosts.files p of
-                Just files -> map (\x -> (At.Paths (JS.file_path x) (JS.thumb_path x), fileToAttachment q x)) files
+                Just files -> map (\x ->
+                    ( At.Paths (withPathPrefix $ JS.file_path x) (withPathPrefix $ JS.thumb_path x)
+                    , fileToAttachment q x)
+                    ) files
                 Nothing ->
                     case parseLegacyPaths p of
                         Nothing -> []
@@ -349,11 +389,10 @@ processFiles settings post_pairs = do -- perfect just means that our posts have 
                             in
                                 ( paths
                                 , At.Attachment
-                                    { At.attachment_id = Nothing
-                                    , At.mimetype = mime
+                                    { At.mimetype = mime
                                     , At.creation_time = Posts.creation_time q
                                     , At.sha256_hash = undefined
-                                    , At.phash = undefined
+                                    , At.phash = Nothing
                                     , At.illegal = False
                                     , At.post_id = fromJust $ Posts.post_id q
                                     , At.resolution = dim

@@ -17,16 +17,15 @@ data Dimension = Dimension
   } deriving (Show, Generic, FromJSON, ToJSON)
 
 data Paths = Paths
-  { file_path :: Text
-  , thumbnail_path :: Text
-  }
+  { file_path :: FilePath
+  , thumbnail_path :: FilePath
+  } deriving (Show)
 
 data Attachment = Attachment
-    { attachment_id   :: Maybe Int64
-    , mimetype        :: Text
+    { mimetype        :: Text
     , creation_time   :: UTCTime
     , sha256_hash     :: Text
-    , phash           :: Int64
+    , phash           :: Maybe Int64
     , illegal         :: Bool
     , post_id         :: Int64
     , resolution      :: Maybe Dimension
