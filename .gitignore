@@ -1,3 +1,5 @@
 .dbpassword
 todo
 dist-newstyle/
+paths.txt
+temp_backfill_settings.json

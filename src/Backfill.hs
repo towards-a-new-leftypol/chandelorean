@@ -300,10 +300,10 @@ processFiles settings post_pairs = do -- perfect just means that our posts have 
 
             with_hashes <- mapM computeAttachmentHash to_insert_exist
 
-            let existing_hashes :: Set.Set Text =
-                    Set.fromList $ map At.sha256_hash existing_attachments
+            let existing_hashes :: Set.Set (Int64, Text) =
+                    Set.fromList $ map (\x -> (At.post_id x, At.sha256_hash x)) existing_attachments
 
-            let to_insert_ = filter ((`Set.notMember` existing_hashes) . At.sha256_hash) with_hashes
+            let to_insert_ = filter ((`Set.notMember` existing_hashes) . (\x -> (At.post_id x , At.sha256_hash x))) with_hashes
 
             attachments_result <- Client.postAttachments settings to_insert_
 

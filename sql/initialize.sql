@@ -110,7 +110,7 @@ CREATE TABLE IF NOT EXISTS attachments
     ( attachment_id bigserial primary key
     , mimetype text NOT NULL
     , creation_time timestamp with time zone NOT NULL
-    , sha256_hash text NOT NULL UNIQUE
+    , sha256_hash text NOT NULL
     , phash bigint
     , illegal boolean NOT NULL DEFAULT false
     , post_id bigint NOT NULL
