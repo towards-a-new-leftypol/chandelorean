@@ -35,7 +35,7 @@ import qualified DataClient as Client
 import qualified SitesType  as Sites
 import qualified BoardsType as Boards
 import qualified ThreadType as Threads
-import qualified AttachmentType as At
+import qualified Common.AttachmentType as At
 import qualified Common.PostsType as Posts
 import qualified Hash as Hash
 import qualified Data.WordUtil as Words

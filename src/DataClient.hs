@@ -48,7 +48,7 @@ import qualified JSONSettings as T
 import qualified SitesType as Sites
 import qualified BoardsType as Boards
 import qualified ThreadType as Threads
-import qualified AttachmentType as Attachments
+import qualified Common.AttachmentType as Attachments
 import qualified Common.PostsType  as Posts
 
 data HttpError

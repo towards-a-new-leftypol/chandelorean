@@ -75,7 +75,7 @@ executable chan-delorean
                       JSONPost
                       JSONCommonTypes
                       Common.PostsType
-                      AttachmentType
+                      Common.AttachmentType
                       Hash
                       Data.WordUtil
 
