@@ -107,17 +107,19 @@ CREATE TYPE dimension AS
     );
 
 CREATE TABLE IF NOT EXISTS attachments
-    ( attachment_id bigserial primary key
-    , mimetype text NOT NULL
-    , creation_time timestamp with time zone NOT NULL
-    , sha256_hash text NOT NULL
-    , phash bigint
-    , illegal boolean NOT NULL DEFAULT false
-    , post_id bigint NOT NULL
-    , resolution dimension
-    , file_extension text
+    ( attachment_id     bigserial primary key
+    , mimetype          text NOT NULL
+    , creation_time     timestamp with time zone NOT NULL
+    , sha256_hash       text NOT NULL
+    , phash             bigint
+    , illegal           boolean NOT NULL DEFAULT false
+    , post_id           bigint NOT NULL
+    , resolution        dimension
+    , file_extension    text
     , original_filename text
-    , file_size_bytes int
+    , board_filename    text NOT NULL
+    , spoiler           boolean NOT NULL DEFAULT true
+    , file_size_bytes   int
     , CONSTRAINT post_fk FOREIGN KEY (post_id) REFERENCES posts (post_id) ON DELETE CASCADE
     );
 CREATE INDEX attachments_creation_time_idx  ON attachments (creation_time);

@@ -34,6 +34,7 @@ data Post = Post
     , ext            :: Maybe Text
     , tim            :: Maybe Text
     , fsize          :: Maybe Int
+    , spoiler        :: Maybe Int
     } deriving (Show, Generic)
 
 instance FromJSON Post
