@@ -11,7 +11,12 @@ import Control.Monad (filterM)
 import Data.Aeson (decode)
 import qualified Data.ByteString.Lazy as B
 import System.Console.CmdArgs
-import System.Directory (listDirectory, doesFileExist)
+import System.Directory
+    ( listDirectory
+    , doesFileExist
+    , copyFile
+    , createDirectoryIfMissing
+    )
 import System.FilePath ((</>))
 import Data.List (find, isSuffixOf, foldl')
 import qualified Data.Set as Set
@@ -224,15 +229,18 @@ concatMapM op = foldr f (pure [])
                 pure $ x_ ++ xs_
 
 
-setPostIdInPosts :: [(Sites.Site, Threads.Thread, JSONPosts.Post, Posts.Post)] -> [ Client.PostId ] -> [(Sites.Site, Threads.Thread, JSONPosts.Post, Posts.Post)]
+setPostIdInPosts
+    :: [(Sites.Site, Boards.Board, Threads.Thread, JSONPosts.Post, Posts.Post)]
+    -> [ Client.PostId ]
+    -> [(Sites.Site, Boards.Board, Threads.Thread, JSONPosts.Post, Posts.Post)]
 setPostIdInPosts tuples ids = map f ids
     where
-        post_map :: Map.Map (Int64, Int64) (Sites.Site, Threads.Thread, JSONPosts.Post, Posts.Post)
-        post_map = Map.fromList (map (\(a, b, i, j) -> ((Posts.thread_id j, Posts.board_post_id j), (a, b, i, j))) tuples)
+        post_map :: Map.Map (Int64, Int64) (Sites.Site, Boards.Board, Threads.Thread, JSONPosts.Post, Posts.Post)
+        post_map = Map.fromList (map (\(a, b, c, i, j) -> ((Posts.thread_id j, Posts.board_post_id j), (a, b, c, i, j))) tuples)
 
-        f :: Client.PostId -> (Sites.Site, Threads.Thread, JSONPosts.Post, Posts.Post)
+        f :: Client.PostId -> (Sites.Site, Boards.Board, Threads.Thread, JSONPosts.Post, Posts.Post)
         f (Client.PostId { Client.post_id = asdf1, Client.thread_id = asdf2, Client.board_post_id = asdf3 }) =
-            (\(a, b, i, j) -> (a, b, i, j { Posts.post_id = Just asdf1 })) (post_map Map.! (asdf2, asdf3))
+            (\(a, b, c, i, j) -> (a, b, c, i, j { Posts.post_id = Just asdf1 })) (post_map Map.! (asdf2, asdf3))
 
 
 fileToAttachment :: Posts.Post -> JS.File -> At.Attachment
@@ -274,15 +282,57 @@ phash_mimetypes = Set.fromList
     ]
 
 
-copyFiles :: JSONSettings -> (At.Paths, At.Attachment) -> IO ()
-copyFiles settings (p, _) = undefined
+copyFiles :: JSONSettings -> (Sites.Site, Boards.Board, Threads.Thread, Posts.Post, At.Paths, At.Attachment) -> IO ()
+copyFiles settings (site, board, thread, _, path, attachment) = do
+    destination_exists <- doesFileExist dest
+
+    if not destination_exists
+    then do
+        src_exists <- doesFileExist src
+
+        createDirectoryIfMissing True common_dest
+
+        if src_exists
+        then copyFile src dest
+        else return ()
+
+        thumb_exists <- doesFileExist thumb_src
+
+        if thumb_exists
+        then copyFile thumb_src thumb_dest
+        else return ()
+
+    else return ()
+
     -- src = (At.file_path | At.thumb_path)
     -- dest = <media_root>/<website_name>/<boardpart>/<board_thread_id>/<sha>.<ext>
 
+    where
+        src :: FilePath
+        src = At.file_path path
 
-processFiles :: JSONSettings -> [(Sites.Site, Threads.Thread, JSONPosts.Post, Posts.Post)] -> IO ()
+        thumb_src :: FilePath
+        thumb_src = At.file_path path
+
+        dest :: FilePath
+        dest = common_dest
+            <> "/" <> (unpack $ At.board_filename attachment)
+
+        thumb_dest :: FilePath
+        thumb_dest = common_dest
+            <> "/thumbnail_" <> (unpack $ At.board_filename attachment)
+
+        common_dest :: FilePath
+        common_dest
+            = (JSONSettings.media_root_path settings)
+            <> "/" <> Sites.name site
+            <> "/" <> Boards.pathpart board
+            <> "/" <> (show $ Threads.board_thread_id thread)
+
+
+processFiles :: JSONSettings -> [(Sites.Site, Boards.Board, Threads.Thread, JSONPosts.Post, Posts.Post)] -> IO ()
 processFiles settings tuples = do -- perfect just means that our posts have ids, they're already inserted into the db
-    let ps = map (\(_, _, _, x) -> x) tuples
+    let ps = map (\(_, _, _, _, x) -> x) tuples
 
     existing_attachments_result <- Client.getAttachments settings (map (fromJust . Posts.post_id) ps)
 
@@ -291,28 +341,28 @@ processFiles settings tuples = do -- perfect just means that our posts have ids,
             putStrLn $ "Error fetching attachments: " ++ show err
             exitFailure
         Right existing_attachments -> do
-            let map_existing :: Map.Map Int64 [ At.Attachment ] =
-                    foldl' (insertRecord At.post_id) Map.empty existing_attachments
+            let map_existing :: Map.Map (Int64, Text) [ At.Attachment ] =
+                    foldl'
+                        (insertRecord (\a -> (At.post_id a, At.board_filename a)))
+                        Map.empty
+                        existing_attachments
 
-            let attachments_on_board :: [(Sites.Site, Threads.Thread, Posts.Post, At.Paths, At.Attachment)] =
+            let attachments_on_board :: [(Sites.Site, Boards.Board, Threads.Thread, Posts.Post, At.Paths, At.Attachment)] =
                     concatMap parseAttachments tuples
             -- attachments_on_board are the only files that can be copied into the archive dir right now
             -- since that's where we have the src filename. except here the Attachment doesn't have a sha hash yet
             -- so we can't build the destination filename.
 
-            let map_should_exist :: Map.Map Int64 [(Sites.Site, Threads.Thread, Posts.Post, At.Paths, At.Attachment)] =
-                    foldl' (insertRecord (At.post_id . (\(_, _, _, _, a) -> a))) Map.empty attachments_on_board
+            let map_should_exist :: Map.Map (Int64, Text) [(Sites.Site, Boards.Board, Threads.Thread, Posts.Post, At.Paths, At.Attachment)] =
+                    foldl'
+                        (insertRecord (\(_, _, _, _, _, a) -> (At.post_id a, At.board_filename a)))
+                        Map.empty
+                        attachments_on_board
 
-            -- basically we have a map of the post_id to attachments for that post_id
-            -- compare the number of attachments under each post_id in the map
-            -- assembled from the API with the map assembled from data in the db.
-            -- if the number of files differ, then likely there are new attachments.
-            -- This isn't fool-proof (there are probably weird cases where the
-            -- number of files for a post is the same but the files themselves
-            -- are different) but it's a quicker way of seeing which attachments
-            -- need to be saved than finding the sha256 hash of every single existing
-            -- file.
-            let to_insert_map = Map.filterWithKey (compareAttMaps map_existing) map_should_exist
+            let to_insert_map =
+                    Map.filterWithKey
+                        (\k _ -> not $ k `Map.member` map_existing)
+                        map_should_exist
 
             let to_insert = foldr (++) [] $ Map.elems to_insert_map
 
@@ -320,12 +370,7 @@ processFiles settings tuples = do -- perfect just means that our posts have ids,
 
             with_hashes <- mapM computeAttachmentHash to_insert_exist
 
-            let existing_hashes :: Set.Set (Int64, Text) =
-                    Set.fromList $ map (\x -> (At.post_id x, At.sha256_hash x)) existing_attachments
-
-            let to_insert_ = filter ((`Set.notMember` existing_hashes) . (\x -> (At.post_id x , At.sha256_hash x))) with_hashes
-
-            attachments_result <- Client.postAttachments settings to_insert_
+            attachments_result <- Client.postAttachments settings with_hashes
 
             case attachments_result of
                 Left err -> do
@@ -334,13 +379,14 @@ processFiles settings tuples = do -- perfect just means that our posts have ids,
 
                 Right saved -> do
                     putStrLn $ "Saved " ++ (show $ length saved) ++ " attachments!"
+                    mapM_ (copyFiles settings) attachments_on_board
 
     where
-        attachmentFileExists :: (Sites.Site, Threads.Thread, Posts.Post, At.Paths, At.Attachment) -> IO Bool
-        attachmentFileExists (_, _, _, p, _) = doesFileExist (At.file_path p)
+        attachmentFileExists :: (Sites.Site, Boards.Board, Threads.Thread, Posts.Post, At.Paths, At.Attachment) -> IO Bool
+        attachmentFileExists (_, _, _, _, p, _) = doesFileExist (At.file_path p)
 
-        computeAttachmentHash :: (Sites.Site, Threads.Thread, Posts.Post, At.Paths, At.Attachment) -> IO At.Attachment
-        computeAttachmentHash (_, _, _, p, q) = do
+        computeAttachmentHash :: (Sites.Site, Boards.Board, Threads.Thread, Posts.Post, At.Paths, At.Attachment) -> IO At.Attachment
+        computeAttachmentHash (_, _, _, _, p, q) = do
             let f = At.file_path p
 
             putStrLn $ "Reading " ++ f
@@ -412,18 +458,21 @@ processFiles settings tuples = do -- perfect just means that our posts have ids,
             return (p, attachment)
 
 
-        notDeleted :: (a, b, c, At.Paths, At.Attachment) -> Bool
-        notDeleted (_, _, _, p, _) = not $ "deleted" `isSuffixOf` (At.file_path p)
+        notDeleted :: (a, b, c, d, At.Paths, At.Attachment) -> Bool
+        notDeleted (_, _, _, _, p, _) = not $ "deleted" `isSuffixOf` (At.file_path p)
 
 
         withPathPrefix :: Text -> FilePath
         withPathPrefix = ((<>) $ backup_read_root settings) . unpack
 
-        parseAttachments :: (Sites.Site, Threads.Thread, JSONPosts.Post, Posts.Post) -> [(Sites.Site, Threads.Thread, Posts.Post, At.Paths, At.Attachment)]
-        parseAttachments (site, thread, p, q) = filter notDeleted $
+        parseAttachments
+            :: (Sites.Site, Boards.Board, Threads.Thread, JSONPosts.Post, Posts.Post)
+            -> [(Sites.Site, Boards.Board, Threads.Thread, Posts.Post, At.Paths, At.Attachment)]
+        parseAttachments (site, board, thread, p, q) = filter notDeleted $
             case JSONPosts.files p of
                 Just files -> map (\x ->
                     ( site
+                    , board
                     , thread
                     , q
                     , At.Paths (withPathPrefix $ JS.file_path x) (withPathPrefix $ JS.thumb_path x)
@@ -437,6 +486,7 @@ processFiles settings tuples = do -- perfect just means that our posts have ids,
                                 dim = (JSONPosts.w p) >>= \w -> ((JSONPosts.h p) >>= \h -> Just $ At.Dimension w h)
                             in
                                 ( site
+                                , board
                                 , thread
                                 , q
                                 , paths
@@ -458,13 +508,6 @@ processFiles settings tuples = do -- perfect just means that our posts have ids,
                 l = Map.findWithDefault [] pid accMap
             in Map.insert pid (x : l) accMap
 
-        compareAttMaps
-            :: Map.Map Int64 [ At.Attachment ]
-            -> Int64
-            -> [((Sites.Site, Threads.Thread, Posts.Post, At.Paths, At.Attachment))]
-            -> Bool
-        compareAttMaps existing k v
-            = (maybe (-1) length (Map.lookup k existing)) /= length v
 
 processBoard :: JSONSettings -> Sites.Site -> Boards.Board -> IO ()
 processBoard settings site board = do
@@ -481,11 +524,11 @@ processBoard settings site board = do
 
             all_posts_on_board :: [(Threads.Thread, [ JSONPosts.Post ])] <- mapM (readPosts settings board) all_threads_for_board
 
-            let tuples :: [(Sites.Site, Threads.Thread, JSONPosts.Post, Posts.Post)] = concatMap
-                    (\(t, posts) -> map (\p -> (site, t, p, apiPostToArchivePost t p)) posts)
+            let tuples :: [(Sites.Site, Boards.Board, Threads.Thread, JSONPosts.Post, Posts.Post)] = concatMap
+                    (\(t, posts) -> map (\p -> (site, board, t, p, apiPostToArchivePost t p)) posts)
                     all_posts_on_board
 
-            posts_result <- Client.postPosts settings (map (\(_, _, _, d) -> d) tuples)
+            posts_result <- Client.postPosts settings (map (\(_, _, _, _, d) -> d) tuples)
 
             case posts_result of
                 Left err -> print err
