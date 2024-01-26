@@ -29,7 +29,7 @@ data File = File
   , w          :: Maybe Int
   , fsize      :: Int
   , filename   :: Text
-  , spoiler    :: Bool
+  , spoiler    :: Maybe Bool
   , md5        :: Text
   , file_path  :: Text
   , thumb_path :: Text

@@ -116,6 +116,7 @@ CREATE TABLE IF NOT EXISTS attachments
     , post_id           bigint NOT NULL
     , resolution        dimension
     , file_extension    text
+    , thumb_extension   text
     , original_filename text
     , board_filename    text NOT NULL
     , spoiler           boolean NOT NULL DEFAULT true
@@ -215,7 +216,7 @@ $$;
 
 CREATE OR REPLACE FUNCTION fetch_catalog(max_time timestamptz, max_row_read int DEFAULT 10000)
 RETURNS TABLE (
-    post_count bigint,
+    -- post_count bigint,
     estimated_post_count bigint,
     post_id bigint,
     board_post_id bigint,
@@ -227,7 +228,12 @@ RETURNS TABLE (
     board_thread_id bigint,
     pathpart text,
     site_name text,
-    site_id int
+    file_mimetype text,
+    file_illegal boolean,
+    -- file_resolution dimension,
+    file_name text,
+    file_extension text,
+    file_thumb_extension text
 ) AS $$
     WITH
         top AS
@@ -255,28 +261,34 @@ RETURNS TABLE (
                 *
             FROM tall_posts t
             ORDER BY t.thread_id, t.board_post_id
-        ),
-        post_counts AS
-        (
-            SELECT thread_id, count(*) as post_count FROM
-            tall_posts
-            GROUP BY thread_id
-        )
+        )-- ,
+        -- post_counts AS
+        -- (
+        --     SELECT thread_id, count(*) as post_count FROM
+        --     tall_posts
+        --     GROUP BY thread_id
+        -- )
     SELECT
-        post_counts.post_count,
+        -- post_counts.post_count,
         op_posts.*,
-        threads.board_thread_id,
+        threads.board_thread_id, -- this should be part of the url path when creating links, not thread_id (that's internal)
         boards.pathpart,
         sites."name",
-        sites.site_id
+        -- sites.site_id,
+        attachments.mimetype as file_mimetype,
+        attachments.illegal as file_illegal,
+        -- attachments.resolution as file_resolution,
+        attachments.board_filename as file_name,
+        attachments.file_extension,
+        attachments.thumb_extension as file_thumb_extension
     FROM op_posts
-    JOIN post_counts ON op_posts.thread_id = post_counts.thread_id
+    -- JOIN post_counts ON op_posts.thread_id = post_counts.thread_id
     JOIN threads ON op_posts.thread_id = threads.thread_id
     JOIN boards ON threads.board_id = boards.board_id
     JOIN sites ON sites.site_id = boards.site_id
+    LEFT OUTER JOIN attachments ON attachments.post_id = op_posts.post_id
     ORDER BY bump_time DESC;
 $$ LANGUAGE sql;
-
 
 
 -- Function: search_posts

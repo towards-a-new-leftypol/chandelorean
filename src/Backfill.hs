@@ -17,7 +17,7 @@ import System.Directory
     , copyFile
     , createDirectoryIfMissing
     )
-import System.FilePath ((</>))
+import System.FilePath ((</>), (<.>), takeExtension)
 import Data.List (find, isSuffixOf, foldl')
 import qualified Data.Set as Set
 import Data.Set (Set)
@@ -254,14 +254,17 @@ fileToAttachment post file =
         , At.post_id = fromJust $ Posts.post_id post
         , At.resolution = dim
         , At.file_extension = Just extension
+        , At.thumb_extension = Just thumb_extension
         , At.original_filename = Just $ JS.filename file <> "." <> extension
         , At.file_size_bytes = JS.fsize file
-        , At.board_filename = JS.id file <> "." <> extension
-        , At.spoiler = JS.spoiler file
+        , At.board_filename = JS.id file
+        , At.spoiler = maybe False id $ JS.spoiler file
         }
 
     where
       extension = JS.ext file
+
+      thumb_extension = T.pack $ drop 1 $ takeExtension $ unpack $ JS.thumb_path file
 
       guessed_mime = getMimeType extension
 
@@ -293,13 +296,13 @@ copyFiles settings (site, board, thread, _, path, attachment) = do
         createDirectoryIfMissing True common_dest
 
         if src_exists
-        then copyFile src dest
+        then putStrLn ("Copying " ++ src) >> copyFile src dest
         else return ()
 
         thumb_exists <- doesFileExist thumb_src
 
         if thumb_exists
-        then copyFile thumb_src thumb_dest
+        then putStrLn ("Copying " ++ thumb_src) >> copyFile thumb_src thumb_dest
         else return ()
 
     else return ()
@@ -312,22 +315,24 @@ copyFiles settings (site, board, thread, _, path, attachment) = do
         src = At.file_path path
 
         thumb_src :: FilePath
-        thumb_src = At.file_path path
+        thumb_src = At.thumbnail_path path
 
         dest :: FilePath
         dest = common_dest
-            <> "/" <> (unpack $ At.board_filename attachment)
+          </> (unpack $ At.board_filename attachment)
+          <.> (unpack $ fromJust $ At.file_extension attachment)
 
         thumb_dest :: FilePath
         thumb_dest = common_dest
-            <> "/thumbnail_" <> (unpack $ At.board_filename attachment)
+            </> "thumbnail_" <> (unpack $ At.board_filename attachment)
+            <.> (unpack $ fromJust $ At.thumb_extension attachment)
 
         common_dest :: FilePath
         common_dest
             = (JSONSettings.media_root_path settings)
-            <> "/" <> Sites.name site
-            <> "/" <> Boards.pathpart board
-            <> "/" <> (show $ Threads.board_thread_id thread)
+            </> Sites.name site
+            </> Boards.pathpart board
+            </> (show $ Threads.board_thread_id thread)
 
 
 processFiles :: JSONSettings -> [(Sites.Site, Boards.Board, Threads.Thread, JSONPosts.Post, Posts.Post)] -> IO ()
@@ -449,9 +454,10 @@ processFiles settings tuples = do -- perfect just means that our posts have ids,
                     , At.post_id = undefined
                     , At.resolution = undefined
                     , At.file_extension = Just $ T.drop 1 ext
+                    , At.thumb_extension = Just $ "png"
                     , At.original_filename = Just $ filename <> ext
                     , At.file_size_bytes = size
-                    , At.board_filename = tim <> ext
+                    , At.board_filename = tim
                     , At.spoiler = spoiler > 0
                     }
 
