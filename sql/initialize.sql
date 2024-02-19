@@ -320,13 +320,23 @@ $$ LANGUAGE sql;
 -- Example:
 --   -- To search for posts related to 'quantum computing':
 --   SELECT * FROM search_posts('quantum computing');
-CREATE OR REPLACE FUNCTION search_posts(search_text TEXT)
-RETURNS SETOF posts
-AS $$
-SELECT p.*
-FROM posts p
-WHERE p.body_search_index @@ websearch_to_tsquery('english', search_text)
-ORDER BY ts_rank(p.body_search_index, websearch_to_tsquery('english', search_text)) DESC;
+CREATE OR REPLACE FUNCTION search_posts(search_text text)
+RETURNS TABLE (
+  post posts,
+  pathpart text,
+  board_thread_id bigint,
+  relevance double precision
+) AS $$
+WITH query AS (
+  SELECT websearch_to_tsquery('english', search_text) AS query
+)
+SELECT p::posts AS post, pathpart, board_thread_id,
+	ts_rank(p.body_search_index, query.query)
+	/ (1 + EXTRACT(EPOCH FROM AGE(p.creation_time)) / (3600 * 24))	AS relevance
+FROM posts p JOIN threads ON threads.thread_id = p.thread_id JOIN boards ON boards.board_id = threads.board_id, query
+WHERE p.body_search_index @@ query.query
+ORDER BY relevance
+DESC
 $$ LANGUAGE sql STABLE;
 
 

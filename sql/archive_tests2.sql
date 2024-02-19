@@ -23,7 +23,7 @@ AS $$
 $$;
 
 
-SELECT * FROM fetch_top_threads(NOW() - INTERVAL '10d');
+SELECT * FROM fetch_top_threads(NOW(), 1000);
 
 SELECT * FROM fetch_top_threads(NOW() - INTERVAL '10d') top JOIN posts ON top.thread_id = posts.thread_id;
 
@@ -197,7 +197,7 @@ $$ LANGUAGE sql;
 
 SELECT * FROM fetch_catalog(NOW() - INTERVAL '1y', 1001);
 
-SELECT * FROM fetch_catalog(NOW(), 5000);
+SELECT * FROM fetch_catalog(NOW(), 1000);
 
 SELECT count(*) FROM posts;
 

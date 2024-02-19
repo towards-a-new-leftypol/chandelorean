@@ -592,12 +592,15 @@ SELECT * FROM posts WHERE body_search_index @@ websearch_to_tsquery('english', '
 
 
 WITH query AS (
-  SELECT websearch_to_tsquery('english', 'Anonymous') AS query
+  SELECT websearch_to_tsquery('english', 'sound cringe irl') AS query
 )
-SELECT p.*, ts_rank(p.body_search_index, query.query) AS relevance
-FROM posts p, query
+SELECT p.*, pathpart, board_thread_id,
+	ts_rank(p.body_search_index, query.query)
+	/ (1 + EXTRACT(EPOCH FROM AGE(p.creation_time)) / (3600 * 24))	AS relevance
+FROM posts p JOIN threads ON threads.thread_id = p.thread_id JOIN boards ON boards.board_id = threads.board_id, query
 WHERE p.body_search_index @@ query.query
-ORDER BY relevance DESC;
+ORDER BY relevance
+DESC;
 
 
 CREATE OR REPLACE FUNCTION search_posts(search_text TEXT)
@@ -606,11 +609,15 @@ AS $$
 SELECT p.*
 FROM posts p
 WHERE p.body_search_index @@ websearch_to_tsquery('english', search_text)
-ORDER BY ts_rank(p.body_search_index, websearch_to_tsquery('english', search_text)) DESC;
+ORDER BY
+	ts_rank(p.body_search_index, websearch_to_tsquery('english', search_text))
+	/
+	(1 + EXTRACT(EPOCH FROM AGE(p.creation_time)) / (3600 * 24))
+	DESC;
 $$ LANGUAGE sql STABLE;
 
 
-SELECT * FROM search_posts('alt chans') s
+SELECT * FROM search_posts('archive') s
 JOIN threads ON threads.thread_id = s.thread_id
 JOIN boards ON boards.board_id = threads.board_id;
 
@@ -640,4 +647,9 @@ SET body_search_index = (
     setweight(to_tsvector('english', COALESCE(body, '')), 'C')
 )
 WHERE board_post_id = 476524;
+
+SELECT count(*)
+FROM posts
+WHERE creation_time >= CURRENT_DATE AT TIME ZONE 'UTC'
+  AND creation_time < (CURRENT_DATE + INTERVAL '1 day') AT TIME ZONE 'UTC';
 
