@@ -212,6 +212,7 @@ apiPostToArchivePost thread post =
     , Posts.subject         = JSONPosts.sub post
     , Posts.email           = JSONPosts.email post
     , Posts.thread_id       = Threads.thread_id thread
+    , Posts.embed           = JSONPosts.embed post
     }
 
 -- | A version of 'concatMap' that works with a monadic predicate.
@@ -586,7 +587,10 @@ processBackupDirectory settings = do
 --          - it's saged by a mod
 --          - the post has sage in the email field
 --          - the thread is full.
-
+--
+-- Better to support all those flags via the api: saged, locked, cyclical?, sticky
+--      - deleted could be there too
+--      - edited could be there too
 
 main :: IO ()
 main = do

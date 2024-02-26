@@ -22,6 +22,7 @@ data Post = Post
     , locked         :: Maybe Int
     , cyclical       :: Maybe J.Cyclical
     , last_modified  :: Int
+    , embed          :: Maybe Text
     , board          :: Text
     , files          :: Maybe [J.File]
     , resto          :: Int

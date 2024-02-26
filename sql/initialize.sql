@@ -72,7 +72,7 @@ CREATE TABLE IF NOT EXISTS posts
     , email text
     , body_search_index tsvector
     , thread_id bigint NOT NULL
---  , TODO: embed
+    , embed text
     , CONSTRAINT unique_thread_board_id_constraint UNIQUE (thread_id, board_post_id)
     , CONSTRAINT thread_fk FOREIGN KEY (thread_id) REFERENCES threads (thread_id) ON DELETE CASCADE
     );
@@ -225,6 +225,7 @@ RETURNS TABLE (
     body text,
     subject text,
     thread_id bigint,
+    embed text,
     board_thread_id bigint,
     pathpart text,
     site_name text,
@@ -250,7 +251,8 @@ RETURNS TABLE (
                 top.bump_time,
                 posts.body,
                 posts.subject,
-                posts.thread_id
+                posts.thread_id,
+                posts.embed
             FROM top
             JOIN posts ON top.thread_id = posts.thread_id
             WHERE creation_time < max_time
