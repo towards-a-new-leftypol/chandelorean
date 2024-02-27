@@ -25,6 +25,7 @@ import Network.HTTP.Client
     ( newManager
     , managerSetMaxHeaderLength
     , httpLbs
+    , responseTimeoutNone
     )
 import qualified Data.ByteString.Lazy.Char8 as BL
 import Network.HTTP.Client.Conduit (defaultManagerSettings)
@@ -90,8 +91,9 @@ post
   -> IO (Either HttpError LBS.ByteString)
 post settings path payload return_repr = do
     let requestUrl = T.postgrest_url settings ++ path
-    initReq <- parseRequest requestUrl
-    let req = setRequestMethod "POST"
+    req <- parseRequest requestUrl
+    let initReq = setRequestResponseTimeout responseTimeoutNone req
+    let request = setRequestMethod "POST"
             . setRequestHeader "Authorization" [ jwt_header ]
             . setRequestHeader "Content-Type" [ "application/json" ]
             . setRequestBodyLBS payload
@@ -100,7 +102,7 @@ post settings path payload return_repr = do
 
     putStrLn $ "posting to " ++ requestUrl
     -- putStrLn $ "Payload: " ++ (LC8.unpack payload)
-    handleHttp (httpLBS req)
+    handleHttp (httpLBS request)
 
     where
       jwt_header = C8.pack $ "Bearer " ++ T.jwt settings
