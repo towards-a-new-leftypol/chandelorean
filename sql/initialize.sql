@@ -121,12 +121,16 @@ CREATE TABLE IF NOT EXISTS attachments
     , board_filename    text NOT NULL
     , spoiler           boolean NOT NULL DEFAULT true
     , file_size_bytes   int
+    , attachment_idx    int NOT NULL
     , CONSTRAINT post_fk FOREIGN KEY (post_id) REFERENCES posts (post_id) ON DELETE CASCADE
+    , CONSTRAINT unique_post_attachment_idx UNIQUE (post_id, attachment_idx)
     );
 CREATE INDEX attachments_creation_time_idx  ON attachments (creation_time);
 CREATE INDEX attachments_post_id_idx        ON attachments (post_id);
 CREATE INDEX attachments_sha256_hash_idx    ON attachments (sha256_hash);
---
+CREATE INDEX attachments_attachment_idx_idx ON attachments (attachment_idx);
+
+
 -- Index using the bktree extension for quickly getting the closest phashes
 CREATE INDEX attachments_phash_bktree_index ON attachments USING spgist (phash bktree_ops);
 
