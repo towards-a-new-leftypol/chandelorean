@@ -16,6 +16,7 @@ DROP TABLE IF EXISTS boards CASCADE;
 DROP TABLE IF EXISTS threads CASCADE;
 DROP TABLE IF EXISTS posts CASCADE;
 DROP TABLE IF EXISTS attachments CASCADE;
+DROP TYPE IF EXISTS catalog_grid_result CASCADE;
 DROP FUNCTION IF EXISTS update_post_body_search_index;
 DROP FUNCTION IF EXISTS fetch_top_threads;
 DROP FUNCTION IF EXISTS fetch_catalog;
@@ -218,28 +219,32 @@ AS $$
 $$;
 
 
+CREATE TYPE catalog_grid_result AS
+    (
+        -- post_count bigint,
+        estimated_post_count bigint,
+        post_id bigint,
+        board_post_id bigint,
+        creation_time timestamptz,
+        bump_time timestamptz,
+        body text,
+        subject text,
+        thread_id bigint,
+        embed text,
+        board_thread_id bigint,
+        pathpart text,
+        site_name text,
+        file_mimetype text,
+        file_illegal boolean,
+        -- file_resolution dimension,
+        file_name text,
+        file_extension text,
+        file_thumb_extension text
+    );
+
+
 CREATE OR REPLACE FUNCTION fetch_catalog(max_time timestamptz, max_row_read int DEFAULT 10000)
-RETURNS TABLE (
-    -- post_count bigint,
-    estimated_post_count bigint,
-    post_id bigint,
-    board_post_id bigint,
-    creation_time timestamptz,
-    bump_time timestamptz,
-    body text,
-    subject text,
-    thread_id bigint,
-    embed text,
-    board_thread_id bigint,
-    pathpart text,
-    site_name text,
-    file_mimetype text,
-    file_illegal boolean,
-    -- file_resolution dimension,
-    file_name text,
-    file_extension text,
-    file_thumb_extension text
-) AS $$
+RETURNS SETOF catalog_grid_result AS $$
     WITH
         top AS
         (
@@ -292,7 +297,7 @@ RETURNS TABLE (
     JOIN threads ON op_posts.thread_id = threads.thread_id
     JOIN boards ON threads.board_id = boards.board_id
     JOIN sites ON sites.site_id = boards.site_id
-    LEFT OUTER JOIN attachments ON attachments.post_id = op_posts.post_id
+    LEFT OUTER JOIN attachments ON attachments.post_id = op_posts.post_id AND attachments.attachment_idx = 1
     ORDER BY bump_time DESC;
 $$ LANGUAGE sql;
 
