@@ -293,7 +293,7 @@ RETURNS SETOF catalog_grid_result AS $$
         attachments.file_extension,
         attachments.thumb_extension as file_thumb_extension
     FROM op_posts
-    -- JOIN post_counts ON op_posts.thread_id = post_counts.thread_id
+    -- JOIN post_counts ON op_posts.thread_id = post_counts.thread_idh
     JOIN threads ON op_posts.thread_id = threads.thread_id
     JOIN boards ON threads.board_id = boards.board_id
     JOIN sites ON sites.site_id = boards.site_id
@@ -303,24 +303,29 @@ $$ LANGUAGE sql;
 
 
 -- Function: search_posts
--- 
+--
 -- This function performs a full-text search on the `posts` table using PostgreSQL's text search features.
 -- It takes a single argument `search_text`, which represents the text to search for within the `posts` body content.
--- The function is designed to return rows from the `posts` table where the `body_search_index` tsvector column matches
--- the websearch to tsquery conversion of the input `search_text`. Results are ranked by their relevance to the search
--- text, with the most relevant posts appearing first.
--- 
+-- The function is designed to join the `posts` table with `threads`, `boards`, `sites`, and `attachments` tables to enrich
+-- the search results with additional context such as thread information, board pathpart, site name, and attachment details.
+-- Results are ranked by their relevance to the search text, with the most relevant posts appearing first.
+--
 -- The function uses the `websearch_to_tsquery` function for parsing the provided search text into a tsquery object
 -- using the 'english' configuration. It then ranks the results using the `ts_rank` function based on the match
--- between the `body_search_index` column and the tsquery object, ordering the posts from most to least relevant.
--- 
--- Note that the `relevance` score is used only for ordering the results; it is not included in the function's return set.
--- 
+-- between the `body_search_index` column and the tsquery object, adjusting the rank by the age of the post to prefer newer posts.
+-- Results are ordered from most to least relevant based on this computed relevance.
+--
+-- Note that the `relevance` score is computed for ranking purposes but is not included in the function's return set.
+-- The function returns a rich set of information for each matching post, including details from related tables to provide
+-- a comprehensive view suitable for displaying a catalog grid of search results.
+--
 -- Parameters:
 --   - search_text: TEXT, the text to be searched in the `posts` body.
 --
 -- Returns:
---   - A SETOF rows from the `posts` table ordered by the relevance of the full-text search.
+--   - A SETOF rows combining data from `posts`, `threads`, `boards`, `sites`, and `attachments` tables, ordered by
+--     the relevance of the full-text search. Each row includes post details along with thread, board, site, and attachment
+--     information to provide a full context for each search result.
 --
 -- Usage:
 --   SELECT * FROM search_posts('Desired search text');
@@ -332,22 +337,55 @@ $$ LANGUAGE sql;
 --   -- To search for posts related to 'quantum computing':
 --   SELECT * FROM search_posts('quantum computing');
 CREATE OR REPLACE FUNCTION search_posts(search_text text)
-RETURNS TABLE (
-  post posts,
-  pathpart text,
-  board_thread_id bigint,
-  relevance double precision
-) AS $$
-WITH query AS (
-  SELECT websearch_to_tsquery('english', search_text) AS query
-)
-SELECT p::posts AS post, pathpart, board_thread_id,
-	ts_rank(p.body_search_index, query.query)
-	/ (1 + EXTRACT(EPOCH FROM AGE(p.creation_time)) / (3600 * 24))	AS relevance
-FROM posts p JOIN threads ON threads.thread_id = p.thread_id JOIN boards ON boards.board_id = threads.board_id, query
-WHERE p.body_search_index @@ query.query
-ORDER BY relevance
-DESC
+RETURNS SETOF catalog_grid_result AS $$
+    WITH
+        query AS (
+          SELECT websearch_to_tsquery('english', search_text) AS query
+        ),
+        result_set AS (
+            SELECT
+                p.*,
+                threads.board_thread_id,
+                pathpart,
+                sites.name AS site_name,
+                attachments.mimetype as file_mimetype,
+                attachments.illegal as file_illegal,
+                -- attachments.resolution as file_resolution,
+                attachments.board_filename as file_name,
+                attachments.file_extension,
+                attachments.thumb_extension as file_thumb_extension,
+                ts_rank(p.body_search_index, query.query)
+                    / (1 + EXTRACT(EPOCH FROM AGE(p.creation_time)) / (3600 * 24)) AS relevance
+                FROM posts p
+                JOIN threads ON threads.thread_id = p.thread_id
+                JOIN boards ON boards.board_id = threads.board_id
+                JOIN sites ON sites.site_id = boards.site_id
+                LEFT OUTER JOIN attachments
+                    ON attachments.post_id = p.post_id
+                    AND attachments.attachment_idx = 1
+                , query
+            WHERE p.body_search_index @@ query.query
+        )
+    SELECT
+        0 AS estimated_post_count,
+        result_set.post_id,
+        result_set.board_post_id,
+        result_set.creation_time,
+        result_set.creation_time AS bump_time,
+        result_set.body,
+        result_set.subject,
+        result_set.thread_id,
+        result_set.embed,
+        result_set.board_thread_id,
+        result_set.pathpart,
+        result_set.site_name,
+        result_set.file_mimetype,
+        result_set.file_illegal,
+        result_set.file_name,
+        result_set.file_extension,
+        result_set.file_thumb_extension
+    FROM result_set
+    ORDER BY result_set.relevance DESC;
 $$ LANGUAGE sql STABLE;
 
 
