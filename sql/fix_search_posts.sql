@@ -54,6 +54,7 @@ RETURNS SETOF catalog_grid_result AS $$
                     AND attachments.attachment_idx = 1
                 , query
             WHERE p.body_search_index @@ query.query
+            LIMIT 2000
         )
     SELECT
         0 AS estimated_post_count,
