@@ -74,14 +74,17 @@ CREATE TABLE IF NOT EXISTS posts
     , body_search_index tsvector
     , thread_id bigint NOT NULL
     , embed text
+    , local_idx int NOT NULL
     , CONSTRAINT unique_thread_board_id_constraint UNIQUE (thread_id, board_post_id)
     , CONSTRAINT thread_fk FOREIGN KEY (thread_id) REFERENCES threads (thread_id) ON DELETE CASCADE
+    , CONSTRAINT unique_thread_local_idx UNIQUE (thread_id, local_idx)
     );
 CREATE INDEX posts_creation_time_idx ON posts (creation_time);
 CREATE INDEX posts_body_search_idx   ON posts USING GIN (body_search_index);
 CREATE INDEX posts_thread_id_idx     ON posts (thread_id);
 CREATE INDEX posts_board_post_id_idx ON posts (board_post_id);
 CREATE INDEX posts_thread_id_creation_time_idx ON posts (creation_time, thread_id);
+CREATE INDEX posts_local_idx_idx     ON posts (local_idx);
 --CREATE INDEX posts_thread_id_board_post_id_idx ON posts (thread_id, board_post_id);
 
 CREATE OR REPLACE FUNCTION update_post_body_search_index() RETURNS trigger AS $$
@@ -96,6 +99,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
+-- WARNING: maybe disable this before doing full table operations on the posts table,
+-- like populating a new column, since this will cause it to rebuild the entire text search index
 CREATE TRIGGER trigger_update_post_body_search_index
 BEFORE INSERT OR UPDATE
 ON posts
@@ -243,64 +248,58 @@ CREATE TYPE catalog_grid_result AS
     );
 
 
-CREATE OR REPLACE FUNCTION fetch_catalog(max_time timestamptz, max_row_read int DEFAULT 10000)
+CREATE OR REPLACE FUNCTION search_posts(search_text text, max_rows integer DEFAULT 1000)
 RETURNS SETOF catalog_grid_result AS $$
     WITH
-        top AS
-        (
-            SELECT * FROM fetch_top_threads(max_time, max_row_read) AS top
+        query AS (
+          SELECT websearch_to_tsquery('english', search_text) AS query
         ),
-        tall_posts AS
-        (
+        result_set AS (
             SELECT
-                top.post_count as estimated_post_count,
-                posts.post_id,
-                posts.board_post_id,
-                posts.creation_time,
-                top.bump_time,
-                posts.body,
-                posts.subject,
-                posts.thread_id,
-                posts.embed
-            FROM top
-            JOIN posts ON top.thread_id = posts.thread_id
-            WHERE creation_time < max_time
-        ),
-        op_posts AS
-        (
-            SELECT DISTINCT ON (t.thread_id)
-                *
-            FROM tall_posts t
-            ORDER BY t.thread_id, t.board_post_id
-        )-- ,
-        -- post_counts AS
-        -- (
-        --     SELECT thread_id, count(*) as post_count FROM
-        --     tall_posts
-        --     GROUP BY thread_id
-        -- )
+                p.*,
+                threads.board_thread_id,
+                pathpart,
+                sites.name AS site_name,
+                attachments.mimetype as file_mimetype,
+                attachments.illegal as file_illegal,
+                -- attachments.resolution as file_resolution,
+                attachments.board_filename as file_name,
+                attachments.file_extension,
+                attachments.thumb_extension as file_thumb_extension,
+                ts_rank(p.body_search_index, query.query)
+                    / (1 + EXTRACT(EPOCH FROM AGE(p.creation_time)) / (3600 * 24)) AS relevance
+                FROM posts p
+                JOIN threads ON threads.thread_id = p.thread_id
+                JOIN boards ON boards.board_id = threads.board_id
+                JOIN sites ON sites.site_id = boards.site_id
+                LEFT OUTER JOIN attachments
+                    ON attachments.post_id = p.post_id
+                    AND attachments.attachment_idx = 1
+                , query
+            WHERE p.body_search_index @@ query.query
+            LIMIT max_rows
+        )
     SELECT
-        -- post_counts.post_count,
-        op_posts.*,
-        threads.board_thread_id, -- this should be part of the url path when creating links, not thread_id (that's internal)
-        boards.pathpart,
-        sites."name",
-        -- sites.site_id,
-        attachments.mimetype as file_mimetype,
-        attachments.illegal as file_illegal,
-        -- attachments.resolution as file_resolution,
-        attachments.board_filename as file_name,
-        attachments.file_extension,
-        attachments.thumb_extension as file_thumb_extension
-    FROM op_posts
-    -- JOIN post_counts ON op_posts.thread_id = post_counts.thread_idh
-    JOIN threads ON op_posts.thread_id = threads.thread_id
-    JOIN boards ON threads.board_id = boards.board_id
-    JOIN sites ON sites.site_id = boards.site_id
-    LEFT OUTER JOIN attachments ON attachments.post_id = op_posts.post_id AND attachments.attachment_idx = 1
-    ORDER BY bump_time DESC;
-$$ LANGUAGE sql;
-
+        0 AS estimated_post_count,
+        result_set.post_id,
+        result_set.board_post_id,
+        result_set.creation_time,
+        result_set.creation_time AS bump_time,
+        result_set.body,
+        result_set.subject,
+        result_set.thread_id,
+        result_set.embed,
+        result_set.board_thread_id,
+        result_set.pathpart,
+        result_set.site_name,
+        result_set.file_mimetype,
+        result_set.file_illegal,
+        result_set.file_name,
+        result_set.file_extension,
+        result_set.file_thumb_extension
+    FROM result_set
+    ORDER BY result_set.relevance DESC;
+$$ LANGUAGE sql STABLE;
 
 -- Function: search_posts
 --

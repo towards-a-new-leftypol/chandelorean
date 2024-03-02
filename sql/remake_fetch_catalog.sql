@@ -3,6 +3,7 @@ BEGIN TRANSACTION;
 DROP TYPE IF EXISTS catalog_grid_result CASCADE;
 DROP FUNCTION IF EXISTS fetch_catalog;
 
+-- OLD: 121ms
 CREATE TYPE catalog_grid_result AS
     (
         -- post_count bigint,
@@ -37,7 +38,7 @@ RETURNS SETOF catalog_grid_result AS $$
         tall_posts AS
         (
             SELECT
-                top.post_count as estimated_post_count,
+                top.post_count AS estimated_post_count,
                 posts.post_id,
                 posts.board_post_id,
                 posts.creation_time,
@@ -47,41 +48,27 @@ RETURNS SETOF catalog_grid_result AS $$
                 posts.thread_id,
                 posts.embed
             FROM top
-            JOIN posts ON top.thread_id = posts.thread_id
+            JOIN posts ON top.thread_id = posts.thread_id AND posts.local_idx = 1
             WHERE creation_time < max_time
-        ),
-        op_posts AS
-        (
-            SELECT DISTINCT ON (t.thread_id)
-                *
-            FROM tall_posts t
-            ORDER BY t.thread_id, t.board_post_id
-        )-- ,
-        -- post_counts AS
-        -- (
-        --     SELECT thread_id, count(*) as post_count FROM
-        --     tall_posts
-        --     GROUP BY thread_id
-        -- )
+        )
     SELECT
         -- post_counts.post_count,
-        op_posts.*,
+        tall_posts.*,
         threads.board_thread_id, -- this should be part of the url path when creating links, not thread_id (that's internal)
         boards.pathpart,
         sites."name",
         -- sites.site_id,
-        attachments.mimetype as file_mimetype,
-        attachments.illegal as file_illegal,
-        -- attachments.resolution as file_resolution,
-        attachments.board_filename as file_name,
+        attachments.mimetype AS file_mimetype,
+        attachments.illegal AS file_illegal,
+        -- attachments.resolution AS file_resolution,
+        attachments.board_filename AS file_name,
         attachments.file_extension,
-        attachments.thumb_extension as file_thumb_extension
-    FROM op_posts
-    -- JOIN post_counts ON op_posts.thread_id = post_counts.thread_id
-    JOIN threads ON op_posts.thread_id = threads.thread_id
+        attachments.thumb_extension AS file_thumb_extension
+    FROM tall_posts
+    JOIN threads ON tall_posts.thread_id = threads.thread_id
     JOIN boards ON threads.board_id = boards.board_id
     JOIN sites ON sites.site_id = boards.site_id
-    LEFT OUTER JOIN attachments ON attachments.post_id = op_posts.post_id AND attachments.attachment_idx = 1
+    LEFT OUTER JOIN attachments ON attachments.post_id = tall_posts.post_id AND attachments.attachment_idx = 1
     ORDER BY bump_time DESC;
 $$ LANGUAGE sql;
 
