@@ -244,8 +244,8 @@ setPostIdInPosts tuples ids = map f ids
             (\(a, b, c, i, j) -> (a, b, c, i, j { Posts.post_id = Just asdf1 })) (post_map Map.! (asdf2, asdf3))
 
 
-fileToAttachment :: Posts.Post -> JS.File -> At.Attachment
-fileToAttachment post file =
+fileToAttachment :: Int -> Posts.Post -> JS.File -> At.Attachment
+fileToAttachment i post file =
     At.Attachment
         { At.mimetype = maybe guessed_mime id (JS.mime file)
         , At.creation_time = Posts.creation_time post
@@ -260,6 +260,7 @@ fileToAttachment post file =
         , At.file_size_bytes = JS.fsize file
         , At.board_filename = JS.id file
         , At.spoiler = maybe False id $ JS.spoiler file
+        , At.attachment_idx = i
         }
 
     where
@@ -460,6 +461,7 @@ processFiles settings tuples = do -- perfect just means that our posts have ids,
                     , At.file_size_bytes = size
                     , At.board_filename = tim
                     , At.spoiler = spoiler > 0
+                    , At.attachment_idx = 1
                     }
 
             return (p, attachment)
@@ -477,14 +479,16 @@ processFiles settings tuples = do -- perfect just means that our posts have ids,
             -> [(Sites.Site, Boards.Board, Threads.Thread, Posts.Post, At.Paths, At.Attachment)]
         parseAttachments (site, board, thread, p, q) = filter notDeleted $
             case JSONPosts.files p of
-                Just files -> map (\x ->
-                    ( site
-                    , board
-                    , thread
-                    , q
-                    , At.Paths (withPathPrefix $ JS.file_path x) (withPathPrefix $ JS.thumb_path x)
-                    , fileToAttachment q x)
-                    ) files
+                Just files -> map
+                    (\(i, x) ->
+                        ( site
+                        , board
+                        , thread
+                        , q
+                        , At.Paths (withPathPrefix $ JS.file_path x) (withPathPrefix $ JS.thumb_path x)
+                        , fileToAttachment i q x
+                        )
+                    ) (zip [1..] files)
                 Nothing ->
                     case parseLegacyPaths p of
                         Nothing -> []
