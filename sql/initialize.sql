@@ -381,7 +381,8 @@ GRANT EXECUTE ON FUNCTION get_posts         TO chan_archive_anon;
 -- GRANT usage, select ON SEQUENCE boards_board_id_seq TO chan_archive_anon;
 GRANT chan_archive_anon                 TO admin;
 
-CREATE ROLE chan_archiver noinherit login password 'test_password';
+CREATE ROLE chan_archiver noinherit login password 'test_password'
+    SET pgrst.db_aggregates_enabled = 'true';
 GRANT CONNECT ON DATABASE chan_archives TO chan_archiver;
 GRANT chan_archive_anon                 TO chan_archiver;
 GRANT ALL ON sites                      TO chan_archiver;

@@ -1,7 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveAnyClass #-}
 
-module DataClient
+module Network.DataClient
   ( HttpError(..)
   , PostId (..)
   , get
@@ -11,6 +11,7 @@ module DataClient
   , post
   , postBoards
   , getThreads
+  , getThreadMaxLocalIdx
   , postThreads
   , getPosts
   , postPosts
@@ -43,13 +44,13 @@ import qualified ThreadType as Threads
 import qualified Common.AttachmentType as Attachments
 import qualified Common.PostsType  as Posts
 import Common.Network.HttpClient
+import qualified Network.DataClientTypes as T
 
 
 data PostId = PostId
-    { board_post_id :: Int64
-    , thread_id     :: Int64
+    { thread_id     :: Int64
+    , board_post_id :: Int64
     } deriving (Show, Generic, ToJSON)
-
 
 getSiteBoards :: T.JSONSettings -> Int -> IO (Either HttpError [ Boards.Board ])
 getSiteBoards settings site_id_ = get settings path >>= return . eitherDecodeResponse
@@ -116,6 +117,19 @@ getThreads settings board_id board_thread_ids =
         ids :: String = intercalate "," $ map show board_thread_ids
 
 
+getThreadMaxLocalIdx :: T.JSONSettings -> [ Int64 ] -> IO (Either HttpError [(Int64, Int)])
+getThreadMaxLocalIdx settings thread_ids = do
+    result :: Either HttpError [ T.ThreadMaxIdx ] <- get settings path >>= return . eitherDecodeResponse
+
+    let results = result >>= \x -> return $ map (\t -> (T.thread_id t, T.max_idx t)) x
+
+    return results
+
+    where
+        path = "/posts?select=thread_id,max_idx:local_idx.max()&thread_id=in.(" ++ ids ++ ")"
+        ids :: String = intercalate "," $ map show thread_ids
+
+
 -- | Splits a list into chunks of a given size.
 chunkList :: Int -> [a] -> [[a]]
 chunkList _ [] = []
@@ -172,6 +186,7 @@ getPosts :: T.JSONSettings -> [ PostId ] -> IO (Either HttpError [Posts.Post])
 getPosts settings xs = do
     results <- forM (chunkList chunkSize xs) (getPostsChunk settings)
     return $ combineResults results
+
   where
     chunkSize = 1000
 
@@ -180,7 +195,7 @@ postPosts
     :: T.JSONSettings
     -> [ Posts.Post ]
     -> IO (Either HttpError [ Posts.Post ])
-postPosts settings posts = do
+postPosts settings posts =
     post settings "/posts" payload True >>= return . eitherDecodeResponse
 
     where

@@ -36,7 +36,7 @@ import JSONParsing
 import JSONSettings
 import qualified JSONCommonTypes as JS
 import qualified JSONPost   as JSONPosts
-import qualified DataClient as Client
+import qualified Network.DataClient as Client
 import qualified SitesType  as Sites
 import qualified BoardsType as Boards
 import qualified ThreadType as Threads
@@ -44,6 +44,8 @@ import qualified Common.AttachmentType as At
 import qualified Common.PostsType as Posts
 import qualified Hash as Hash
 import qualified Data.WordUtil as Words
+
+import Debug.Trace (trace, traceShowId)
 
 newtype SettingsCLI = SettingsCLI
   { jsonFile :: FilePath
@@ -202,7 +204,11 @@ readPosts settings board thread = do
 
 
 apiPostToPostKey :: Threads.Thread -> JSONPosts.Post -> Client.PostId
-apiPostToPostKey thread post = Client.PostId (Threads.thread_id thread) (JSONPosts.no post)
+apiPostToPostKey thread post =
+    Client.PostId
+        { Client.thread_id = (Threads.thread_id thread)
+        , Client.board_post_id = (JSONPosts.no post)
+        }
 
 -- Convert Post to DbPost
 apiPostToArchivePost :: Int -> Threads.Thread -> JSONPosts.Post -> Posts.Post
@@ -531,18 +537,20 @@ createNewPosts
     -> [ (Threads.Thread, JSONPosts.Post, Client.PostId) ]
     -> IO [ Posts.Post ]
 createNewPosts settings tuples = do
-    existing_post_results <- Client.getPosts settings (map (\(_, _, c) -> c) tuples)
+    existing_post_results <- Client.getPosts settings $ map (\(_, _, c) -> c) tuples
     existing_posts <- either handleError return existing_post_results
+
+    thread_max_local_idx_result <- Client.getThreadMaxLocalIdx settings thread_ids
+    thread_max_local_idxs <- either handleError return thread_max_local_idx_result
 
     let existing_set :: Set (Int64, Int64) = Set.fromList (map (\x -> (Posts.thread_id x, Posts.board_post_id x)) existing_posts)
 
     let to_insert_list :: [ (Threads.Thread, JSONPosts.Post, Client.PostId) ] =
             sortBy (comparing $ \(_, _, p) -> Client.board_post_id p) $
-                determineNew tuples existing_set
+                newPosts tuples existing_set
 
     -- Map of thread_id to the largest local_idx value (which would be the number of the last post in the thread)
-    let local_idx :: Map.Map Int64 Int = foldr (Map.unionWith max) Map.empty $
-            map (\x -> Map.singleton (Posts.thread_id x) (Posts.local_idx x)) existing_posts
+    let local_idx :: Map.Map Int64 Int = Map.fromList thread_max_local_idxs
 
     let insert_posts = fst $ foldl' foldFn ([], local_idx) to_insert_list
 
@@ -555,6 +563,7 @@ createNewPosts settings tuples = do
     --      - need to compare posts already in the map with another post and keep the max local_idx ✓
     -- to get the new local_idx, we must order the to_insert_list by board_post_id, and look up each entry ✓
 
+    print insert_posts
     posts_result <- Client.postPosts settings insert_posts
     new_posts <- either handleError return posts_result
     return $ existing_posts ++ new_posts
@@ -562,14 +571,17 @@ createNewPosts settings tuples = do
     where
         handleError err = print err >> exitFailure
 
-        determineNew :: [(Threads.Thread, JSONPosts.Post, Client.PostId)] -> Set (Int64, Int64) -> [(Threads.Thread, JSONPosts.Post, Client.PostId)]
-        determineNew ts existing_set = filter (\(_, _, c) -> Set.notMember (Client.thread_id c, Client.board_post_id c) existing_set) ts
+        thread_ids :: [ Int64 ]
+        thread_ids = Set.elems $ Set.fromList $ map (\(t, _, _) -> Threads.thread_id t) tuples
+
+        newPosts :: [(Threads.Thread, JSONPosts.Post, Client.PostId)] -> Set (Int64, Int64) -> [(Threads.Thread, JSONPosts.Post, Client.PostId)]
+        newPosts ts existing_set = filter (\(_, _, c) -> Set.notMember (Client.thread_id c, Client.board_post_id c) existing_set) ts
 
         foldFn :: ([Posts.Post], Map.Map Int64 Int) -> (Threads.Thread, JSONPosts.Post, Client.PostId) -> ([Posts.Post], Map.Map Int64 Int)
-        foldFn (posts, idx_map) (t, p, c) =
-            case Map.lookup thread_id idx_map of
-                Nothing -> ((post 1) : posts, Map.insert thread_id 1 idx_map)
-                Just i -> ((post (i + 1)) : posts, Map.insert thread_id (i + 1) idx_map)
+        foldFn (posts, idx_map) (t, p, c) = trace "foldFn" $
+            case Map.lookup thread_id (trace ("map size: " ++ (show $ length idx_map)) idx_map) of
+                Nothing -> (traceShowId (post 1) : posts, trace ("inserting_1 " ++ show thread_id ++ ": 1")$ Map.insert thread_id 1 idx_map)
+                Just i -> (traceShowId (post (i + 1)) : posts, trace ("inserting_2 " ++ show thread_id ++ ": " ++ show (i + 1)) $ Map.insert thread_id (i + 1) idx_map)
 
             where
                 post :: Int -> Posts.Post
@@ -666,4 +678,6 @@ main = do
             Nothing -> do
                 putStrLn "Error: Invalid JSON format."
                 exitFailure
-            Just settings -> processBackupDirectory settings
+            Just settings -> do
+                processBackupDirectory settings
+                putStrLn "Done!"
