@@ -12,6 +12,7 @@ module DataClient
   , postBoards
   , getThreads
   , postThreads
+  , getPosts
   , postPosts
   , getAttachments
   , postAttachments
@@ -26,6 +27,7 @@ import qualified Data.ByteString.Lazy.Char8 as LC8
 import Data.List (intercalate)
 import Data.Aeson
   ( eitherDecode
+  , ToJSON
   , FromJSON
   , (.=)
   , object
@@ -42,11 +44,12 @@ import qualified Common.AttachmentType as Attachments
 import qualified Common.PostsType  as Posts
 import Common.Network.HttpClient
 
+
 data PostId = PostId
-    { post_id :: Int64
-    , board_post_id :: Int64
-    , thread_id :: Int64
-    } deriving (Show, Generic, FromJSON)
+    { board_post_id :: Int64
+    , thread_id     :: Int64
+    } deriving (Show, Generic, ToJSON)
+
 
 getSiteBoards :: T.JSONSettings -> Int -> IO (Either HttpError [ Boards.Board ])
 getSiteBoards settings site_id_ = get settings path >>= return . eitherDecodeResponse
@@ -103,6 +106,7 @@ postThreads settings threads =
 getAllSites :: T.JSONSettings -> IO (Either HttpError [ Sites.Site ])
 getAllSites settings = get settings "/sites" >>= return . eitherDecodeResponse
 
+
 getThreads :: T.JSONSettings -> Int -> [ Int ] -> IO (Either HttpError [ Threads.Thread ])
 getThreads settings board_id board_thread_ids =
     get settings path >>= return . eitherDecodeResponse
@@ -155,15 +159,39 @@ postAttachments settings attachments = do
       payload = encode attachments
 
 
+-- | Function to handle each chunk.
+getPostsChunk :: T.JSONSettings -> [ PostId ] -> IO (Either HttpError [Posts.Post])
+getPostsChunk settings chunk =
+    post settings "/rpc/get_posts" payload False >>= return . eitherDecodeResponse
+
+    where
+        payload = encode $ object [ "board_posts" .= chunk ]
+
+
+getPosts :: T.JSONSettings -> [ PostId ] -> IO (Either HttpError [Posts.Post])
+getPosts settings xs = do
+    results <- forM (chunkList chunkSize xs) (getPostsChunk settings)
+    return $ combineResults results
+  where
+    chunkSize = 1000
+
+
 postPosts
     :: T.JSONSettings
     -> [ Posts.Post ]
-    -> IO (Either HttpError [ PostId ])
-postPosts settings posts =
-    post settings "/rpc/insert_posts_and_return_ids" payload True >>= return . eitherDecodeResponse
+    -> IO (Either HttpError [ Posts.Post ])
+postPosts settings posts = do
+    post settings "/posts" payload True >>= return . eitherDecodeResponse
 
     where
-      payload = encode $ object [ "new_posts" .= posts ]
+        payload = encode posts
+
+
+-- Old type:
+-- postPosts
+--     :: T.JSONSettings
+--     -> [ Posts.Post ]
+--     -> IO (Either HttpError [ PostId ])
 
 
 eitherDecodeResponse :: (FromJSON a) => Either HttpError LBS.ByteString -> Either HttpError a

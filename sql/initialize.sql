@@ -17,6 +17,7 @@ DROP TABLE IF EXISTS threads CASCADE;
 DROP TABLE IF EXISTS posts CASCADE;
 DROP TABLE IF EXISTS attachments CASCADE;
 DROP TYPE IF EXISTS catalog_grid_result CASCADE;
+DROP TYPE IF EXISTS post_key CASCADE;
 DROP FUNCTION IF EXISTS update_post_body_search_index;
 DROP FUNCTION IF EXISTS fetch_top_threads;
 DROP FUNCTION IF EXISTS fetch_catalog;
@@ -170,6 +171,8 @@ $$ LANGUAGE sql;
 
 */
 
+
+-- Deprecated: this doesn't insert local_idx, seems better to just get all the posts in application
 CREATE OR REPLACE FUNCTION insert_posts_and_return_ids(new_posts posts[])
 RETURNS TABLE (post_id bigint, board_post_id bigint, thread_id bigint) AS $$
 WITH 
@@ -197,6 +200,21 @@ $$ LANGUAGE sql;
 
 -- 1:51 for clean db (this varies a lot)
 -- 1:21 for full db (nothing inserted)
+
+
+CREATE TYPE post_key AS
+    ( thread_id bigint
+    , board_post_id bigint
+    );
+
+CREATE OR REPLACE FUNCTION get_posts(board_posts post_key[])
+RETURNS SETOF posts AS $$
+
+    SELECT *
+    FROM posts
+    WHERE (thread_id, board_post_id) IN (SELECT thread_id, board_post_id FROM unnest(board_posts))
+
+$$ LANGUAGE sql;
 
 
 CREATE OR REPLACE FUNCTION fetch_top_threads(
@@ -345,6 +363,7 @@ REVOKE EXECUTE ON FUNCTION fetch_top_threads FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION fetch_catalog FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION search_posts FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION update_post_body_search_index FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION get_posts FROM PUBLIC;
 
 CREATE ROLE chan_archive_anon nologin;
 GRANT CONNECT ON DATABASE chan_archives     TO chan_archive_anon;
@@ -356,6 +375,7 @@ GRANT SELECT ON attachments                 TO chan_archive_anon;
 GRANT EXECUTE ON FUNCTION fetch_catalog     TO chan_archive_anon;
 GRANT EXECUTE ON FUNCTION fetch_top_threads TO chan_archive_anon;
 GRANT EXECUTE ON FUNCTION search_posts      TO chan_archive_anon;
+GRANT EXECUTE ON FUNCTION get_posts         TO chan_archive_anon;
 
 -- GRANT usage, select ON SEQUENCE sites_site_id_seq TO chan_archive_anon;
 -- GRANT usage, select ON SEQUENCE boards_board_id_seq TO chan_archive_anon;
@@ -374,6 +394,7 @@ GRANT EXECUTE ON FUNCTION insert_posts_and_return_ids   TO chan_archiver;
 GRANT EXECUTE ON FUNCTION fetch_top_threads             TO chan_archiver;
 GRANT EXECUTE ON FUNCTION fetch_catalog                 TO chan_archiver;
 GRANT EXECUTE ON FUNCTION search_posts                  TO chan_archiver;
+GRANT EXECUTE ON FUNCTION get_posts                     TO chan_archiver;
 GRANT usage, select ON SEQUENCE sites_site_id_seq       TO chan_archiver;
 GRANT usage, select ON SEQUENCE boards_board_id_seq     TO chan_archiver;
 GRANT usage, select ON SEQUENCE threads_thread_id_seq   TO chan_archiver;
