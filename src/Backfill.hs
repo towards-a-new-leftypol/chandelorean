@@ -45,8 +45,6 @@ import qualified Common.PostsType as Posts
 import qualified Hash as Hash
 import qualified Data.WordUtil as Words
 
-import Debug.Trace (trace, traceShowId)
-
 newtype SettingsCLI = SettingsCLI
   { jsonFile :: FilePath
   } deriving (Show, Data, Typeable)
@@ -552,7 +550,7 @@ createNewPosts settings tuples = do
     -- Map of thread_id to the largest local_idx value (which would be the number of the last post in the thread)
     let local_idx :: Map.Map Int64 Int = Map.fromList thread_max_local_idxs
 
-    let insert_posts = fst $ foldl' foldFn ([], local_idx) to_insert_list
+    let insert_posts :: [ Posts.Post ] = fst $ foldl' foldFn ([], local_idx) to_insert_list
 
     -- posts to insert are the posts that are not in existing_posts
     -- so we create a Set (thread_id, board_post_id) ✓
@@ -577,11 +575,14 @@ createNewPosts settings tuples = do
         newPosts :: [(Threads.Thread, JSONPosts.Post, Client.PostId)] -> Set (Int64, Int64) -> [(Threads.Thread, JSONPosts.Post, Client.PostId)]
         newPosts ts existing_set = filter (\(_, _, c) -> Set.notMember (Client.thread_id c, Client.board_post_id c) existing_set) ts
 
-        foldFn :: ([Posts.Post], Map.Map Int64 Int) -> (Threads.Thread, JSONPosts.Post, Client.PostId) -> ([Posts.Post], Map.Map Int64 Int)
-        foldFn (posts, idx_map) (t, p, c) = trace "foldFn" $
-            case Map.lookup thread_id (trace ("map size: " ++ (show $ length idx_map)) idx_map) of
-                Nothing -> (traceShowId (post 1) : posts, trace ("inserting_1 " ++ show thread_id ++ ": 1")$ Map.insert thread_id 1 idx_map)
-                Just i -> (traceShowId (post (i + 1)) : posts, trace ("inserting_2 " ++ show thread_id ++ ": " ++ show (i + 1)) $ Map.insert thread_id (i + 1) idx_map)
+        foldFn
+            :: ([Posts.Post], Map.Map Int64 Int)
+            -> (Threads.Thread, JSONPosts.Post, Client.PostId)
+            -> ([Posts.Post], Map.Map Int64 Int)
+        foldFn (posts, idx_map) (t, p, c) =
+            case Map.lookup thread_id idx_map of
+                Nothing -> (post 1       : posts, Map.insert thread_id 1       idx_map)
+                Just i  -> (post (i + 1) : posts, Map.insert thread_id (i + 1) idx_map)
 
             where
                 post :: Int -> Posts.Post
