@@ -4,7 +4,7 @@ let
   inherit (nixpkgs) pkgs;
 
   perceptual-hash = import ./nix-support/perceptual-hash.nix { inherit nixpkgs; };
-  http-conduit = import ./nix-support/http-conduit.nix { inherit nixpkgs; };
+  http-conduit = import ./src/Common/nix-support/http-conduit.nix { inherit nixpkgs; };
 
   f = { mkDerivation, base, stdenv, cabal-install,
         aeson, safe-exceptions, bytestring, cmdargs,
