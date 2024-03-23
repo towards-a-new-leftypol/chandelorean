@@ -33,7 +33,7 @@ import Network.Mime (defaultMimeLookup)
 import PerceptualHash (fileHash)
 
 import JSONParsing
-import JSONSettings
+import Common.Server.JSONSettings
 import qualified JSONCommonTypes as JS
 import qualified JSONPost   as JSONPosts
 import qualified Network.DataClient as Client
@@ -96,11 +96,11 @@ ensureSiteExists settings = do
 
 
 createArchivesForNewBoards
-    :: JSONSettings ->
-    Set String ->
-    [ String ] ->
-    Int ->
-    IO [ Boards.Board ]
+    :: JSONSettings
+    -> Set String
+    -> [ String ]
+    -> Int
+    -> IO [ Boards.Board ]
 createArchivesForNewBoards settings dirsSet archived_boards siteid = do
     let archivedBoardsSet = Set.fromList archived_boards
 
@@ -341,7 +341,7 @@ copyFiles settings (site, board, thread, _, path, attachment) = do
 
         common_dest :: FilePath
         common_dest
-            = (JSONSettings.media_root_path settings)
+            = (media_root_path settings)
             </> Sites.name site
             </> Boards.pathpart board
             </> (show $ Threads.board_thread_id thread)

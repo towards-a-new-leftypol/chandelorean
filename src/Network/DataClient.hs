@@ -37,7 +37,7 @@ import Data.Aeson
   )
 import GHC.Generics
 
-import qualified JSONSettings as T
+import qualified Common.Server.JSONSettings as T
 import qualified SitesType as Sites
 import qualified BoardsType as Boards
 import qualified ThreadType as Threads

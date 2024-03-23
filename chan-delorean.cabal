@@ -67,7 +67,6 @@ executable chan-delorean
     -- Modules included in this executable, other than Main.
     other-modules:
                       JSONParsing
-                      JSONSettings
                       SitesType
                       BoardsType
                       ThreadType
@@ -80,6 +79,7 @@ executable chan-delorean
                       Data.WordUtil
                       Network.DataClient
                       Network.DataClientTypes
+                      Common.Server.JSONSettings
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
