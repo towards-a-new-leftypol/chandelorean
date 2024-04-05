@@ -17,6 +17,7 @@ module Network.DataClient
   , postPosts
   , getAttachments
   , postAttachments
+  , getJSON
   ) where
 
 import Control.Monad (forM)
@@ -215,3 +216,7 @@ eitherDecodeResponse (Right bs) =
     case eitherDecode bs of
         Right val -> Right val
         Left err -> Left $ StatusCodeError 500 $ LC8.pack $ "Failed to decode JSON: " ++ err ++ " " ++ (show bs)
+
+
+getJSON :: (FromJSON a) => String -> IO (Either HttpError a)
+getJSON url = get_ url [] >>= return . eitherDecodeResponse

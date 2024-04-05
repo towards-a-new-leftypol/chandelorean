@@ -66,6 +66,7 @@ executable chan-delorean
 
     -- Modules included in this executable, other than Main.
     other-modules:
+                      Lib
                       JSONParsing
                       SitesType
                       BoardsType
@@ -118,6 +119,7 @@ executable chan-delorean-consoomer
 
     -- Modules included in this executable, other than Main.
     other-modules:
+                      Lib
                       JSONParsing
                       SitesType
                       BoardsType
@@ -154,7 +156,8 @@ executable chan-delorean-consoomer
                       cryptonite,
                       memory,
                       mime-types,
-                      perceptual-hash
+                      perceptual-hash,
+                      async
 
     -- Directories containing source files.
     hs-source-dirs:   src

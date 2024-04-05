@@ -2,6 +2,7 @@
 {-# HLINT ignore "Redundant bracket" #-}
 {-# HLINT ignore "Use fromMaybe" #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE RecordWildCards #-}
 
 module Lib where
 
@@ -105,19 +106,22 @@ createArchivesForNewBoards settings dirsSet archived_boards siteid = do
     -- Find boards that are in dirs but not in archived_boards
     let boardsToArchive = dirsSet `Set.difference` archivedBoardsSet
 
-    putStrLn "Creating boards:"
+    putStrLn $ "Creating " ++ (show $ length boardsToArchive) ++ " boards:"
     mapM_ putStrLn boardsToArchive
 
-    post_result <- Client.postBoards settings (Set.toList boardsToArchive) siteid
+    if Set.null boardsToArchive
+    then return []
+    else do
+        post_result <- Client.postBoards settings (Set.toList boardsToArchive) siteid
 
-    case post_result of
-        Left err -> do
-            putStrLn $ "Error posting boards: " ++ show err
-            exitFailure
-        Right boards -> do
-            putStrLn "Created the following boards:"
-            mapM_ (putStrLn . Boards.pathpart) boards
-            return boards
+        case post_result of
+            Left err -> do
+                putStrLn $ "Error posting boards: " ++ show err
+                exitFailure
+            Right boards -> do
+                putStrLn "Created the following boards:"
+                mapM_ (putStrLn . Boards.pathpart) boards
+                return boards
 
 
 apiThreadToArchiveThread :: Int -> Thread -> Threads.Thread
@@ -179,10 +183,12 @@ ensureThreads settings board all_threads = do
 
 readPosts
     :: JSONSettings
+    -> FileGetters
     -> Boards.Board
     -> Threads.Thread
     -> IO (Threads.Thread, [ JSONPosts.Post ])
-readPosts settings board thread = do
+readPosts settings fgs board thread = do
+-- parsePosts :: FilePath -> IO (Either String Post.PostWrapper)
     result <- parsePosts thread_filename
 
     case result of
@@ -588,20 +594,32 @@ createNewPosts settings tuples = do
 
                 thread_id = Client.thread_id c
 
-processBoard :: JSONSettings -> Sites.Site -> Boards.Board -> IO ()
-processBoard settings site board = do
-    let catalogPath = backupDir </> "catalog.json"
+
+data FileGetters = FileGetters
+    { getJSONCatalog :: Sites.Site -> String -> IO (Either String [ Catalog ])
+    }
+
+
+localFileGetters :: JSONSettings -> FileGetters
+localFileGetters settings = FileGetters
+    { getJSONCatalog = const $ parseJSONCatalog . (backup_read_root settings </>)
+    }
+
+
+processBoard :: JSONSettings -> FileGetters -> Sites.Site -> Boards.Board -> IO ()
+processBoard settings fgs@FileGetters {..} site board = do
+    let catalogPath = Boards.pathpart board </> "catalog.json"
     putStrLn $ "catalog file path: " ++ catalogPath
 
-    result <- parseJSONCatalog catalogPath
+    result <- getJSONCatalog site catalogPath
 
     case result of
-        Right catalogs -> do
+        Right (catalogs :: [ Catalog ]) -> do
             let threads_on_board = concatMap ((maybe [] id) . threads) catalogs
 
             all_threads_for_board :: [ Threads.Thread ] <- ensureThreads settings board threads_on_board
 
-            all_posts_on_board :: [(Threads.Thread, [ JSONPosts.Post ])] <- mapM (readPosts settings board) all_threads_for_board
+            all_posts_on_board :: [(Threads.Thread, [ JSONPosts.Post ])] <- mapM (readPosts settings fgs board) all_threads_for_board
 
 
             let tuples :: [(Sites.Site, Boards.Board, Threads.Thread, JSONPosts.Post)] = concatMap
@@ -623,18 +641,11 @@ processBoard settings site board = do
             putStrLn $ "Failed to parse the JSON file in directory: "
                 ++ (Boards.pathpart board) ++ ". Error: " ++ errMsg
 
-    where
-        backupDir :: FilePath
-        backupDir = backup_read_root settings </> (Boards.pathpart board)
 
-
-processBackupDirectory :: JSONSettings -> IO ()
-processBackupDirectory settings = do
-    putStrLn "JSON successfully read!"
-    print settings  -- print the decoded JSON settings
+processBoards :: JSONSettings -> FileGetters -> [ FilePath ] -> IO ()
+processBoards settings fgs board_names = do
     site :: Sites.Site <- ensureSiteExists settings
-    dirs <- listCatalogDirectories settings
-    let dirsSet = Set.fromList dirs
+    let boardsSet = Set.fromList board_names
     let site_id_ = Sites.site_id site
     boards_result <- Client.getSiteBoards settings site_id_
     putStrLn "Boards fetched!"
@@ -645,7 +656,16 @@ processBackupDirectory settings = do
             exitFailure
         Right archived_boards -> do
             let boardnames = map Boards.pathpart archived_boards
-            created_boards <- createArchivesForNewBoards settings dirsSet boardnames site_id_
+            created_boards <- createArchivesForNewBoards settings boardsSet boardnames site_id_
             let boards :: [ Boards.Board ] = archived_boards ++ created_boards
-            let boards_we_have_data_for = filter (\board -> Set.member (Boards.pathpart board) dirsSet) boards
-            mapM_ (processBoard settings site) boards_we_have_data_for
+            let boards_we_have_data_for = filter (\board -> Set.member (Boards.pathpart board) boardsSet) boards
+            mapM_ (processBoard settings fgs site) boards_we_have_data_for
+
+
+
+processBackupDirectory :: JSONSettings -> IO ()
+processBackupDirectory settings = do
+    putStrLn "JSON successfully read!"
+    print settings  -- print the decoded JSON settings
+    boards <- listCatalogDirectories settings
+    processBoards settings (localFileGetters settings) boards

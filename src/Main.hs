@@ -6,12 +6,18 @@ import System.Exit (exitFailure)
 import qualified Data.ByteString.Lazy as B
 import System.Console.CmdArgs (cmdArgs, Data, Typeable)
 import Data.Aeson (decode)
+import System.FilePath ((</>))
+import Control.Concurrent.Async (mapConcurrently)
 
+import qualified SitesType as Sites
 import Common.Server.ConsumerSettings
 import Common.Server.JSONSettings as J
 import Lib
-    ( ensureSiteExists
+    ( processBoards
+    , FileGetters (..)
     )
+import JSONParsing (Catalog)
+import qualified Network.DataClient as Client
 
 newtype CliArgs = CliArgs
   { settingsFile :: String
@@ -46,11 +52,23 @@ getSettings = do
                 exitFailure
             Just settings -> return settings
 
+httpFileGetters :: JSONSettings -> FileGetters
+httpFileGetters _ = FileGetters
+    { getJSONCatalog = httpGetJSON
+    }
+
+httpGetJSON :: Sites.Site -> String -> IO (Either String [Catalog])
+httpGetJSON site path = (Client.getJSON $ Sites.url site </> path)
+    >>= getErrMsg
+    where
+        getErrMsg :: Either Client.HttpError a -> IO (Either String a)
+        getErrMsg (Left err) = return $ Left $ show err
+        getErrMsg (Right x) = return $ Right x
 
 processWebsite :: ConsumerJSONSettings -> JSONSiteSettings -> IO ()
 processWebsite settings site_settings = do
     let client_settings = toClientSettings settings site_settings
-    site <- ensureSiteExists client_settings
+    processBoards client_settings (httpFileGetters client_settings) (boards site_settings)
     return ()
 
 main :: IO ()
@@ -60,4 +78,6 @@ main = do
     settings <- getSettings
     print settings
 
-    mapM_ (processWebsite settings) (websites settings)
+    _ <- mapConcurrently (processWebsite settings) (websites settings)
+
+    putStrLn "Done."
