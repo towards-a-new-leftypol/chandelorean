@@ -8,6 +8,7 @@ import System.Console.CmdArgs (cmdArgs, Data, Typeable)
 import Data.Aeson (decode)
 import System.FilePath ((</>))
 import Control.Concurrent.Async (mapConcurrently)
+import Data.Aeson (FromJSON)
 
 import qualified SitesType as Sites
 import Common.Server.ConsumerSettings
@@ -16,7 +17,6 @@ import Lib
     ( processBoards
     , FileGetters (..)
     )
-import JSONParsing (Catalog)
 import qualified Network.DataClient as Client
 
 newtype CliArgs = CliArgs
@@ -55,9 +55,10 @@ getSettings = do
 httpFileGetters :: JSONSettings -> FileGetters
 httpFileGetters _ = FileGetters
     { getJSONCatalog = httpGetJSON
+    , getJSONPosts = httpGetJSON
     }
 
-httpGetJSON :: Sites.Site -> String -> IO (Either String [Catalog])
+httpGetJSON :: (FromJSON a) => Sites.Site -> String -> IO (Either String a)
 httpGetJSON site path = (Client.getJSON $ Sites.url site </> path)
     >>= getErrMsg
     where

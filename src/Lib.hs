@@ -182,27 +182,24 @@ ensureThreads settings board all_threads = do
 
 
 readPosts
-    :: JSONSettings
-    -> FileGetters
+    :: FileGetters
+    -> Sites.Site
     -> Boards.Board
     -> Threads.Thread
     -> IO (Threads.Thread, [ JSONPosts.Post ])
-readPosts settings fgs board thread = do
--- parsePosts :: FilePath -> IO (Either String Post.PostWrapper)
-    result <- parsePosts thread_filename
+readPosts FileGetters {..} site board thread = do
+    result <- getJSONPosts site relative_path
 
     case result of
         Left err -> do
-            putStrLn $ "Failed to parse the JSON file " ++ thread_filename ++ " error: " ++ err
+            putStrLn $ "Failed to parse the JSON file " ++ relative_path ++ " error: " ++ err
+            putStrLn $ "Site: " ++ show site
             return (thread, [])
         Right posts_wrapper -> return (thread, JSONPosts.posts posts_wrapper)
 
     where
-        thread_filename :: FilePath
-        thread_filename = backupDir </> "res" </> (show (Threads.board_thread_id thread) ++ ".json")
-
-        backupDir :: FilePath
-        backupDir = backup_read_root settings </> Boards.pathpart board
+        relative_path :: FilePath
+        relative_path = Boards.pathpart board </> "res" </> (show (Threads.board_thread_id thread) ++ ".json")
 
 
 apiPostToPostKey :: Threads.Thread -> JSONPosts.Post -> Client.PostId
@@ -211,6 +208,7 @@ apiPostToPostKey thread post =
         { Client.thread_id = (Threads.thread_id thread)
         , Client.board_post_id = (JSONPosts.no post)
         }
+
 
 -- Convert Post to DbPost
 apiPostToArchivePost :: Int -> Threads.Thread -> JSONPosts.Post -> Posts.Post
@@ -227,6 +225,7 @@ apiPostToArchivePost local_idx thread post =
     , Posts.embed           = JSONPosts.embed post
     , Posts.local_idx       = local_idx
     }
+
 
 -- | A version of 'concatMap' that works with a monadic predicate.
 -- Stolen from package extra Control.Monad.Extra
@@ -301,6 +300,12 @@ phash_mimetypes = Set.fromList
     ]
 
 
+-- TODO: This will need to be a move or copy
+--      - move in the case of downloading from network
+--          - first download to temporary file
+--          - then in this function instead of copyFile move it.
+--      - copy file if loading from filesystem (eg. from backup), since we want
+--        to keep the original.
 copyFiles :: JSONSettings -> (Sites.Site, Boards.Board, Threads.Thread, Posts.Post, At.Paths, At.Attachment) -> IO ()
 copyFiles settings (site, board, thread, _, path, attachment) = do
     destination_exists <- doesFileExist dest
@@ -405,6 +410,7 @@ processFiles settings tuples = do -- perfect just means that our posts have ids,
     where
         attachmentFileExists :: (Sites.Site, Boards.Board, Threads.Thread, Posts.Post, At.Paths, At.Attachment) -> IO Bool
         attachmentFileExists (_, _, _, _, p, _) = doesFileExist (At.file_path p)
+        -- TODO: this actually has to download a file in the consumer case
 
         computeAttachmentHash :: (Sites.Site, Boards.Board, Threads.Thread, Posts.Post, At.Paths, At.Attachment) -> IO At.Attachment
         computeAttachmentHash (_, _, _, _, p, q) = do
@@ -485,6 +491,8 @@ processFiles settings tuples = do -- perfect just means that our posts have ids,
         notDeleted (_, _, _, _, p, _) = not $ "deleted" `isSuffixOf` (At.file_path p)
 
 
+        -- TODO: we don't have backup_read_root if reading from network.
+        --      - solution? one should obviously be a URL then.
         withPathPrefix :: Text -> FilePath
         withPathPrefix = ((<>) $ backup_read_root settings) . unpack
 
@@ -597,13 +605,18 @@ createNewPosts settings tuples = do
 
 data FileGetters = FileGetters
     { getJSONCatalog :: Sites.Site -> String -> IO (Either String [ Catalog ])
+    , getJSONPosts :: Sites.Site -> String -> IO (Either String JSONPosts.PostWrapper)
     }
 
 
 localFileGetters :: JSONSettings -> FileGetters
 localFileGetters settings = FileGetters
-    { getJSONCatalog = const $ parseJSONCatalog . (backup_read_root settings </>)
+    { getJSONCatalog = const $ parseJSONCatalog . withRoot
+    , getJSONPosts = const $ parsePosts . withRoot
     }
+
+    where
+        withRoot = (backup_read_root settings </>)
 
 
 processBoard :: JSONSettings -> FileGetters -> Sites.Site -> Boards.Board -> IO ()
@@ -619,8 +632,7 @@ processBoard settings fgs@FileGetters {..} site board = do
 
             all_threads_for_board :: [ Threads.Thread ] <- ensureThreads settings board threads_on_board
 
-            all_posts_on_board :: [(Threads.Thread, [ JSONPosts.Post ])] <- mapM (readPosts settings fgs board) all_threads_for_board
-
+            all_posts_on_board :: [(Threads.Thread, [ JSONPosts.Post ])] <- mapM (readPosts fgs site board) all_threads_for_board
 
             let tuples :: [(Sites.Site, Boards.Board, Threads.Thread, JSONPosts.Post)] = concatMap
                     (\(t, posts) -> map (\p -> (site, board, t, p)) posts)

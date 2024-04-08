@@ -18,6 +18,7 @@ module Network.DataClient
   , getAttachments
   , postAttachments
   , getJSON
+  , getFile
   ) where
 
 import Control.Monad (forM)
@@ -37,6 +38,7 @@ import Data.Aeson
   , Value
   )
 import GHC.Generics
+import System.IO.Temp (openBinaryTempFile, getCanonicalTemporaryDirectory)
 
 import qualified Common.Server.JSONSettings as T
 import qualified SitesType as Sites
@@ -220,3 +222,19 @@ eitherDecodeResponse (Right bs) =
 
 getJSON :: (FromJSON a) => String -> IO (Either HttpError a)
 getJSON url = get_ url [] >>= return . eitherDecodeResponse
+
+
+getFile :: String -> IO (Maybe String)
+getFile url = do
+    result <- get_ url []
+
+    case result of
+        Left (err :: HttpError) -> do
+            putStrLn $ show err
+            return Nothing
+        Right lbs -> do
+            tmp_root <- getCanonicalTemporaryDirectory
+            (tmp_filepath, tmp_filehandle) <- openBinaryTempFile tmp_root "chan.attachment"
+            LBS.writeFile tmp_filepath lbs
+            LBS.hPut tmp_filehandle lbs
+            return $ Just tmp_filepath

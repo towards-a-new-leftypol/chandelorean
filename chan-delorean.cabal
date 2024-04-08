@@ -102,7 +102,8 @@ executable chan-delorean
                       cryptonite,
                       memory,
                       mime-types,
-                      perceptual-hash
+                      perceptual-hash,
+                      temporary
 
     -- Directories containing source files.
     hs-source-dirs:   src
@@ -157,7 +158,8 @@ executable chan-delorean-consoomer
                       memory,
                       mime-types,
                       perceptual-hash,
-                      async
+                      async,
+                      temporary
 
     -- Directories containing source files.
     hs-source-dirs:   src
