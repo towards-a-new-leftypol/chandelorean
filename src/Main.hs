@@ -9,6 +9,7 @@ import Data.Aeson (decode)
 import System.FilePath ((</>))
 import Control.Concurrent.Async (mapConcurrently)
 import Data.Aeson (FromJSON)
+import System.Directory (createDirectoryIfMissing, renameFile)
 
 import qualified SitesType as Sites
 import Common.Server.ConsumerSettings
@@ -18,6 +19,7 @@ import Lib
     , FileGetters (..)
     )
 import qualified Network.DataClient as Client
+import qualified Common.AttachmentType as At
 
 newtype CliArgs = CliArgs
   { settingsFile :: String
@@ -53,9 +55,23 @@ getSettings = do
             Just settings -> return settings
 
 httpFileGetters :: JSONSettings -> FileGetters
-httpFileGetters _ = FileGetters
+httpFileGetters settings = FileGetters
     { getJSONCatalog = httpGetJSON
     , getJSONPosts = httpGetJSON
+    , addPathPrefix = ((++) $ site_url settings)
+      -- attachmentPaths here actually doesn't get the paths of the attachment,
+      -- it downloads them into a temporary file and gets that path of that.
+    , attachmentPaths = \paths -> do
+        filepath <- Client.getFile (At.file_path paths)
+        thumbpath <- Client.getFile (At.thumbnail_path paths)
+
+        return $ filepath >>= \fp ->
+            thumbpath >>= \tp ->
+                return (At.Paths fp tp)
+    , copyOrMove = \common_dest (src, dest) (thumb_src, thumb_dest) -> do
+        createDirectoryIfMissing True common_dest
+        renameFile src dest
+        renameFile thumb_src thumb_dest
     }
 
 httpGetJSON :: (FromJSON a) => Sites.Site -> String -> IO (Either String a)

@@ -24,7 +24,7 @@ import Data.Set (Set)
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import Data.Time.Clock (UTCTime)
 import qualified Data.Map as Map
-import Data.Maybe (fromJust)
+import Data.Maybe (fromJust, catMaybes)
 import Data.Text (Text, unpack)
 import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8)
@@ -300,33 +300,9 @@ phash_mimetypes = Set.fromList
     ]
 
 
--- TODO: This will need to be a move or copy
---      - move in the case of downloading from network
---          - first download to temporary file
---          - then in this function instead of copyFile move it.
---      - copy file if loading from filesystem (eg. from backup), since we want
---        to keep the original.
-copyFiles :: JSONSettings -> (Sites.Site, Boards.Board, Threads.Thread, Posts.Post, At.Paths, At.Attachment) -> IO ()
-copyFiles settings (site, board, thread, _, path, attachment) = do
-    destination_exists <- doesFileExist dest
-
-    if not destination_exists
-    then do
-        src_exists <- doesFileExist src
-
-        createDirectoryIfMissing True common_dest
-
-        if src_exists
-        then putStrLn ("Copying " ++ src) >> copyFile src dest
-        else return ()
-
-        thumb_exists <- doesFileExist thumb_src
-
-        if thumb_exists
-        then putStrLn ("Copying " ++ thumb_src) >> copyFile thumb_src thumb_dest
-        else return ()
-
-    else return ()
+copyOrMoveFiles :: JSONSettings -> FileGetters -> Details -> IO ()
+copyOrMoveFiles settings fgs (site, board, thread, _, path, attachment) = do
+    (copyOrMove fgs) common_dest (src, dest) (thumb_src, thumb_dest)
 
     -- src = (At.file_path | At.thumb_path)
     -- dest = <media_root>/<website_name>/<boardpart>/<board_thread_id>/<sha>.<ext>
@@ -356,8 +332,15 @@ copyFiles settings (site, board, thread, _, path, attachment) = do
             </> (show $ Threads.board_thread_id thread)
 
 
-processFiles :: JSONSettings -> [(Sites.Site, Boards.Board, Threads.Thread, JSONPosts.Post, Posts.Post)] -> IO ()
-processFiles settings tuples = do -- perfect just means that our posts have ids, they're already inserted into the db
+type Details = (Sites.Site, Boards.Board, Threads.Thread, Posts.Post, At.Paths, At.Attachment)
+
+
+processFiles
+    :: JSONSettings
+    -> FileGetters
+    -> [(Sites.Site, Boards.Board, Threads.Thread, JSONPosts.Post, Posts.Post)]
+    -> IO ()
+processFiles settings fgs tuples = do -- perfect just means that our posts have ids, they're already inserted into the db
     let ps = map (\(_, _, _, _, x) -> x) tuples
 
     existing_attachments_result <- Client.getAttachments settings (map (fromJust . Posts.post_id) ps)
@@ -373,13 +356,13 @@ processFiles settings tuples = do -- perfect just means that our posts have ids,
                         Map.empty
                         existing_attachments
 
-            let attachments_on_board :: [(Sites.Site, Boards.Board, Threads.Thread, Posts.Post, At.Paths, At.Attachment)] =
+            let attachments_on_board :: [ Details ] =
                     concatMap parseAttachments tuples
             -- attachments_on_board are the only files that can be copied into the archive dir right now
             -- since that's where we have the src filename. except here the Attachment doesn't have a sha hash yet
             -- so we can't build the destination filename.
 
-            let map_should_exist :: Map.Map (Int64, Text) [(Sites.Site, Boards.Board, Threads.Thread, Posts.Post, At.Paths, At.Attachment)] =
+            let map_should_exist :: Map.Map (Int64, Text) [ Details ] =
                     foldl'
                         (insertRecord (\(_, _, _, _, _, a) -> (At.post_id a, At.board_filename a)))
                         Map.empty
@@ -392,7 +375,10 @@ processFiles settings tuples = do -- perfect just means that our posts have ids,
 
             let to_insert = foldr (++) [] $ Map.elems to_insert_map
 
-            to_insert_exist <- filterM attachmentFileExists to_insert
+            to_insert_ <- mapM ensureAttachmentExists to_insert
+
+            let to_insert_exist = catMaybes to_insert_
+            -- to_insert_exist <- filterM attachmentFileExists to_insert
 
             with_hashes <- mapM computeAttachmentHash to_insert_exist
 
@@ -405,14 +391,15 @@ processFiles settings tuples = do -- perfect just means that our posts have ids,
 
                 Right saved -> do
                     putStrLn $ "Saved " ++ (show $ length saved) ++ " attachments!"
-                    mapM_ (copyFiles settings) attachments_on_board
+                    mapM_ (copyOrMoveFiles settings fgs) attachments_on_board
 
     where
-        attachmentFileExists :: (Sites.Site, Boards.Board, Threads.Thread, Posts.Post, At.Paths, At.Attachment) -> IO Bool
-        attachmentFileExists (_, _, _, _, p, _) = doesFileExist (At.file_path p)
-        -- TODO: this actually has to download a file in the consumer case
+        ensureAttachmentExists :: Details -> IO (Maybe Details)
+        ensureAttachmentExists (a, b, c, d, p, f) =
+            (attachmentPaths fgs) p >>=
+                return . (maybe Nothing (\x -> Just (a, b, c, d, x, f)))
 
-        computeAttachmentHash :: (Sites.Site, Boards.Board, Threads.Thread, Posts.Post, At.Paths, At.Attachment) -> IO At.Attachment
+        computeAttachmentHash :: Details -> IO At.Attachment
         computeAttachmentHash (_, _, _, _, p, q) = do
             let f = At.file_path p
 
@@ -490,15 +477,12 @@ processFiles settings tuples = do -- perfect just means that our posts have ids,
         notDeleted :: (a, b, c, d, At.Paths, At.Attachment) -> Bool
         notDeleted (_, _, _, _, p, _) = not $ "deleted" `isSuffixOf` (At.file_path p)
 
-
-        -- TODO: we don't have backup_read_root if reading from network.
-        --      - solution? one should obviously be a URL then.
         withPathPrefix :: Text -> FilePath
-        withPathPrefix = ((<>) $ backup_read_root settings) . unpack
+        withPathPrefix = (addPathPrefix fgs) . unpack
 
         parseAttachments
             :: (Sites.Site, Boards.Board, Threads.Thread, JSONPosts.Post, Posts.Post)
-            -> [(Sites.Site, Boards.Board, Threads.Thread, Posts.Post, At.Paths, At.Attachment)]
+            -> [ Details ]
         parseAttachments (site, board, thread, p, q) = filter notDeleted $
             case JSONPosts.files p of
                 Just files -> map
@@ -606,6 +590,9 @@ createNewPosts settings tuples = do
 data FileGetters = FileGetters
     { getJSONCatalog :: Sites.Site -> String -> IO (Either String [ Catalog ])
     , getJSONPosts :: Sites.Site -> String -> IO (Either String JSONPosts.PostWrapper)
+    , addPathPrefix :: String -> String
+    , attachmentPaths :: At.Paths -> IO (Maybe At.Paths)
+    , copyOrMove :: String -> (String, String) -> (String, String) -> IO ()
     }
 
 
@@ -613,6 +600,30 @@ localFileGetters :: JSONSettings -> FileGetters
 localFileGetters settings = FileGetters
     { getJSONCatalog = const $ parseJSONCatalog . withRoot
     , getJSONPosts = const $ parsePosts . withRoot
+    , addPathPrefix = ((++) $ backup_read_root settings)
+    , attachmentPaths = \p -> do
+        exists <- doesFileExist (At.file_path p)
+        if exists then return (Just p) else return Nothing
+    , copyOrMove = \common_dest (src, dest) (thumb_src, thumb_dest) -> do
+        destination_exists <- doesFileExist dest
+
+        if not destination_exists
+        then do
+            src_exists <- doesFileExist src
+
+            createDirectoryIfMissing True common_dest
+
+            if src_exists
+            then putStrLn ("Copying " ++ src) >> copyFile src dest
+            else return ()
+
+            thumb_exists <- doesFileExist thumb_src
+
+            if thumb_exists
+            then putStrLn ("Copying " ++ thumb_src) >> copyFile thumb_src thumb_dest
+            else return ()
+
+        else return ()
     }
 
     where
@@ -647,7 +658,7 @@ processBoard settings fgs@FileGetters {..} site board = do
 
             let perfect_post_pairs = addPostsToTuples tuples posts_result
 
-            processFiles settings perfect_post_pairs
+            processFiles settings fgs perfect_post_pairs
 
         Left errMsg    ->
             putStrLn $ "Failed to parse the JSON file in directory: "
