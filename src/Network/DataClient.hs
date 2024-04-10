@@ -39,6 +39,7 @@ import Data.Aeson
   )
 import GHC.Generics
 import System.IO.Temp (openBinaryTempFile, getCanonicalTemporaryDirectory)
+import System.IO (hClose)
 
 import qualified Common.Server.JSONSettings as T
 import qualified SitesType as Sites
@@ -226,15 +227,20 @@ getJSON url = get_ url [] >>= return . eitherDecodeResponse
 
 getFile :: String -> IO (Maybe String)
 getFile url = do
+    putStrLn $ "getFile " ++ url
     result <- get_ url []
 
     case result of
         Left (err :: HttpError) -> do
+            putStrLn $ "getFile " ++ url ++ " Error!"
             putStrLn $ show err
             return Nothing
         Right lbs -> do
+            putStrLn $ "getFile " ++ url ++ " SUCCESS!"
             tmp_root <- getCanonicalTemporaryDirectory
             (tmp_filepath, tmp_filehandle) <- openBinaryTempFile tmp_root "chan.attachment"
-            LBS.writeFile tmp_filepath lbs
+            putStrLn $ "Created " ++ tmp_filepath
+            putStrLn $ "Writing attachment..."
             LBS.hPut tmp_filehandle lbs
+            hClose tmp_filehandle
             return $ Just tmp_filepath

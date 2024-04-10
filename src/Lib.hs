@@ -378,7 +378,6 @@ processFiles settings fgs tuples = do -- perfect just means that our posts have 
             to_insert_ <- mapM ensureAttachmentExists to_insert
 
             let to_insert_exist = catMaybes to_insert_
-            -- to_insert_exist <- filterM attachmentFileExists to_insert
 
             with_hashes <- mapM computeAttachmentHash to_insert_exist
 
@@ -391,7 +390,7 @@ processFiles settings fgs tuples = do -- perfect just means that our posts have 
 
                 Right saved -> do
                     putStrLn $ "Saved " ++ (show $ length saved) ++ " attachments!"
-                    mapM_ (copyOrMoveFiles settings fgs) attachments_on_board
+                    mapM_ (copyOrMoveFiles settings fgs) to_insert_exist
 
     where
         ensureAttachmentExists :: Details -> IO (Maybe Details)

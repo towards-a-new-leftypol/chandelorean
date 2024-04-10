@@ -9,7 +9,7 @@ import Data.Aeson (decode)
 import System.FilePath ((</>))
 import Control.Concurrent.Async (mapConcurrently)
 import Data.Aeson (FromJSON)
-import System.Directory (createDirectoryIfMissing, renameFile)
+import System.Directory (createDirectoryIfMissing, removeFile)
 
 import qualified SitesType as Sites
 import Common.Server.ConsumerSettings
@@ -54,6 +54,13 @@ getSettings = do
                 exitFailure
             Just settings -> return settings
 
+
+-- Move a file by reading, writing, and then deleting the original
+moveFile :: FilePath -> FilePath -> IO ()
+moveFile src dst =
+    B.readFile src >>= B.writeFile dst >> removeFile src
+
+
 httpFileGetters :: JSONSettings -> FileGetters
 httpFileGetters settings = FileGetters
     { getJSONCatalog = httpGetJSON
@@ -66,12 +73,14 @@ httpFileGetters settings = FileGetters
         thumbpath <- Client.getFile (At.thumbnail_path paths)
 
         return $ filepath >>= \fp ->
-            thumbpath >>= \tp ->
+            thumbpath >>= \tp -> do
                 return (At.Paths fp tp)
+
     , copyOrMove = \common_dest (src, dest) (thumb_src, thumb_dest) -> do
+        putStrLn $ "Copy Or Move (Move) src: " ++ src ++ " dest: " ++ dest
         createDirectoryIfMissing True common_dest
-        renameFile src dest
-        renameFile thumb_src thumb_dest
+        moveFile src dest
+        moveFile thumb_src thumb_dest
     }
 
 httpGetJSON :: (FromJSON a) => Sites.Site -> String -> IO (Either String a)
