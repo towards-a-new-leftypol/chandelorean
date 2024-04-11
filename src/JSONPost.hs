@@ -23,7 +23,7 @@ data Post = Post
     , cyclical       :: Maybe J.Cyclical
     , last_modified  :: Int
     , embed          :: Maybe Text
-    , board          :: Text
+    -- , board          :: Text
     , files          :: Maybe [J.File]
     , resto          :: Int
     , unique_ips     :: Maybe Int

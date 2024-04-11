@@ -451,8 +451,8 @@ processFiles settings fgs tuples = do -- perfect just means that our posts have 
                 , At.phash = phash
                 }
 
-        parseLegacyPaths :: JSONPosts.Post -> Maybe (At.Paths, At.Attachment)
-        parseLegacyPaths post = do
+        parseLegacyPaths :: Boards.Board -> JSONPosts.Post -> Maybe (At.Paths, At.Attachment)
+        parseLegacyPaths board post = do
             tim <- JSONPosts.tim post
             ext <- JSONPosts.ext post
             filename <- JSONPosts.filename post
@@ -460,9 +460,9 @@ processFiles settings fgs tuples = do -- perfect just means that our posts have 
             spoiler <- JSONPosts.fsize post
 
             let
-                board = JSONPosts.board post
-                file_path = withPathPrefix $ board <> "/src/" <> tim <> ext
-                thumbnail_path = withPathPrefix $ board <> "/thumb/" <> tim <> ext
+                board_pathpart = T.pack $ Boards.pathpart board
+                file_path = (withPathPrefix "") </> (T.unpack $ board_pathpart <> "/src/" <> tim <> ext)
+                thumbnail_path = (withPathPrefix "") </> (T.unpack $ board_pathpart <> "/thumb/" <> tim <> ext)
 
                 p = At.Paths file_path thumbnail_path
 
@@ -510,7 +510,7 @@ processFiles settings fgs tuples = do -- perfect just means that our posts have 
                         )
                     ) (zip [1..] files)
                 Nothing ->
-                    case parseLegacyPaths p of
+                    case parseLegacyPaths board p of
                         Nothing -> []
                         Just (paths, a) ->
                             let
