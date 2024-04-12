@@ -312,7 +312,7 @@ copyOrMoveFiles settings fgs (site, board, thread, _, path, attachment) = do
         src :: FilePath
         src = At.file_path path
 
-        thumb_src :: FilePath
+        thumb_src :: Maybe FilePath
         thumb_src = At.thumbnail_path path
 
         dest :: FilePath
@@ -462,9 +462,10 @@ processFiles settings fgs tuples = do -- perfect just means that our posts have 
             let
                 board_pathpart = T.pack $ Boards.pathpart board
                 file_path = (withPathPrefix "") </> (T.unpack $ board_pathpart <> "/src/" <> tim <> ext)
-                thumbnail_path = (withPathPrefix "") </> (T.unpack $ board_pathpart <> "/thumb/" <> tim <> ext)
+                thumb_extension = "png"
+                thumbnail_path = (withPathPrefix "") </> (T.unpack $ board_pathpart <> "/thumb/" <> tim <> "." <> thumb_extension)
 
-                p = At.Paths file_path thumbnail_path
+                p = At.Paths file_path (Just thumbnail_path)
 
                 mime = getMimeType ext
 
@@ -477,7 +478,7 @@ processFiles settings fgs tuples = do -- perfect just means that our posts have 
                     , At.post_id = undefined
                     , At.resolution = undefined
                     , At.file_extension = Just $ T.drop 1 ext
-                    , At.thumb_extension = Just $ "png"
+                    , At.thumb_extension = Just $ thumb_extension
                     , At.original_filename = Just $ filename <> ext
                     , At.file_size_bytes = size
                     , At.board_filename = tim
@@ -505,7 +506,7 @@ processFiles settings fgs tuples = do -- perfect just means that our posts have 
                         , board
                         , thread
                         , q
-                        , At.Paths (withPathPrefix $ JS.file_path x) (withPathPrefix $ JS.thumb_path x)
+                        , At.Paths (withPathPrefix $ JS.file_path x) (Just $ withPathPrefix $ JS.thumb_path x)
                         , fileToAttachment i q x
                         )
                     ) (zip [1..] files)
@@ -606,7 +607,7 @@ data FileGetters = FileGetters
     , getJSONPosts :: Sites.Site -> String -> IO (Either String JSONPosts.PostWrapper)
     , addPathPrefix :: String -> String
     , attachmentPaths :: At.Paths -> IO (Maybe At.Paths)
-    , copyOrMove :: String -> (String, String) -> (String, String) -> IO ()
+    , copyOrMove :: String -> (String, String) -> (Maybe String, String) -> IO ()
     }
 
 
@@ -618,7 +619,7 @@ localFileGetters settings = FileGetters
     , attachmentPaths = \p -> do
         exists <- doesFileExist (At.file_path p)
         if exists then return (Just p) else return Nothing
-    , copyOrMove = \common_dest (src, dest) (thumb_src, thumb_dest) -> do
+    , copyOrMove = \common_dest (src, dest) (m_thumb_src, thumb_dest) -> do
         destination_exists <- doesFileExist dest
 
         if not destination_exists
@@ -631,11 +632,14 @@ localFileGetters settings = FileGetters
             then putStrLn ("Copying " ++ src) >> copyFile src dest
             else return ()
 
-            thumb_exists <- doesFileExist thumb_src
+            case m_thumb_src of
+                Nothing -> return ()
+                Just thumb_src -> do
+                    thumb_exists <- doesFileExist thumb_src
 
-            if thumb_exists
-            then putStrLn ("Copying " ++ thumb_src) >> copyFile thumb_src thumb_dest
-            else return ()
+                    if thumb_exists
+                    then putStrLn ("Copying " ++ thumb_src) >> copyFile thumb_src thumb_dest
+                    else return ()
 
         else return ()
     }

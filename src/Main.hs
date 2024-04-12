@@ -70,17 +70,22 @@ httpFileGetters settings = FileGetters
       -- it downloads them into a temporary file and gets that path of that.
     , attachmentPaths = \paths -> do
         filepath <- Client.getFile (At.file_path paths)
-        thumbpath <- Client.getFile (At.thumbnail_path paths)
+        m_thumbpath <- case At.thumbnail_path paths of
+            Nothing -> return Nothing
+            Just thumbpath -> Client.getFile thumbpath
 
         return $ filepath >>= \fp ->
-            thumbpath >>= \tp -> do
-                return (At.Paths fp tp)
+            case m_thumbpath of
+                Nothing -> return (At.Paths fp Nothing)
+                tp -> return (At.Paths fp tp)
 
-    , copyOrMove = \common_dest (src, dest) (thumb_src, thumb_dest) -> do
+    , copyOrMove = \common_dest (src, dest) (m_thumb_src, thumb_dest) -> do
         putStrLn $ "Copy Or Move (Move) src: " ++ src ++ " dest: " ++ dest
         createDirectoryIfMissing True common_dest
         moveFile src dest
-        moveFile thumb_src thumb_dest
+        case m_thumb_src of
+          Nothing -> return ()
+          Just thumb_src -> moveFile thumb_src thumb_dest
     }
 
 httpGetJSON :: (FromJSON a) => Sites.Site -> String -> IO (Either String a)
