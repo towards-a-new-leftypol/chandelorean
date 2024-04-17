@@ -9,12 +9,13 @@ module Lib where
 import System.Exit
 import Data.Int (Int64)
 import Control.Monad (filterM)
-import System.Console.CmdArgs
+import System.Console.CmdArgs hiding (name)
 import System.Directory
     ( listDirectory
     , doesFileExist
     , copyFile
     , createDirectoryIfMissing
+    , removeFile
     )
 import System.FilePath ((</>), (<.>), takeExtension)
 import Data.List (find, isSuffixOf, foldl', sortBy)
@@ -31,6 +32,8 @@ import Data.Text.Encoding (decodeUtf8)
 import Network.Mime (defaultMimeLookup)
 import PerceptualHash (fileHash)
 import Control.Exception.Safe (tryAny, tryAsync, SomeException, displayException)
+import qualified Data.ByteString.Lazy as B
+import Data.Aeson (FromJSON)
 
 import JSONParsing
 import Common.Server.JSONSettings
@@ -44,10 +47,18 @@ import qualified Common.AttachmentType as At
 import qualified Common.PostsType as Posts
 import qualified Hash as Hash
 import qualified Data.WordUtil as Words
+import Common.Server.JSONSettings as J
+import qualified Common.Server.ConsumerSettings as CS
 
 newtype SettingsCLI = SettingsCLI
   { jsonFile :: FilePath
   } deriving (Show, Data, Typeable)
+
+
+-- Move a file by reading, writing, and then deleting the original
+moveFile :: FilePath -> FilePath -> IO ()
+moveFile src dst =
+    B.readFile src >>= B.writeFile dst >> removeFile src
 
 
 listCatalogDirectories :: JSONSettings -> IO [ FilePath ]
@@ -715,3 +726,52 @@ processBackupDirectory settings = do
     print settings  -- print the decoded JSON settings
     boards <- listCatalogDirectories settings
     processBoards settings (localFileGetters settings) boards
+
+
+toClientSettings :: CS.ConsumerJSONSettings -> CS.JSONSiteSettings -> J.JSONSettings
+toClientSettings CS.ConsumerJSONSettings {..} CS.JSONSiteSettings {..} =
+    J.JSONSettings
+    { J.postgrest_url = postgrest_url
+    , J.jwt = jwt
+    , J.backup_read_root = undefined
+    , J.media_root_path = media_root_path
+    , J.site_name = name
+    , J.site_url = root_url
+    }
+
+
+httpGetJSON :: (FromJSON a) => Sites.Site -> String -> IO (Either String a)
+httpGetJSON site path = (Client.getJSON $ Sites.url site </> path)
+    >>= getErrMsg
+    where
+        getErrMsg :: Either Client.HttpError a -> IO (Either String a)
+        getErrMsg (Left err) = return $ Left $ show err
+        getErrMsg (Right x) = return $ Right x
+
+httpFileGetters :: J.JSONSettings -> FileGetters
+httpFileGetters settings = FileGetters
+    { getJSONCatalog = httpGetJSON
+    , getJSONPosts = httpGetJSON
+    , addPathPrefix = ((++) $ J.site_url settings)
+      -- attachmentPaths here actually doesn't get the paths of the attachment,
+      -- it downloads them into a temporary file and gets that path of that.
+    , attachmentPaths = \paths -> do
+        filepath <- Client.getFile (At.file_path paths)
+        m_thumbpath <- case At.thumbnail_path paths of
+            Nothing -> return Nothing
+            Just thumbpath -> Client.getFile thumbpath
+
+        return $ filepath >>= \fp ->
+            case m_thumbpath of
+                Nothing -> return (At.Paths fp Nothing)
+                tp -> return (At.Paths fp tp)
+
+    , copyOrMove = \common_dest (src, dest) (m_thumb_src, thumb_dest) -> do
+        putStrLn $ "Copy Or Move (Move) src: " ++ src ++ " dest: " ++ dest
+        createDirectoryIfMissing True common_dest
+        moveFile src dest
+
+        case m_thumb_src of
+          Nothing -> return ()
+          Just thumb_src -> moveFile thumb_src thumb_dest
+    }

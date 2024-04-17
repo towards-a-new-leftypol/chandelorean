@@ -1,6 +1,16 @@
 module Sync where
 
 import Common.Server.ConsumerSettings
+import Lib (getBoards, toClientSettings)
+import SitesType (Site)
+import BoardsType (Board)
+
+getSiteBoards :: ConsumerJSONSettings -> JSONSiteSettings -> IO (Site, [ Board ])
+getSiteBoards settings site_settings =
+    let client_settings = toClientSettings settings site_settings
+    in getBoards
+        client_settings
+        (boards site_settings)
 
 syncWebsites :: ConsumerJSONSettings -> IO ()
 syncWebsites _ = do

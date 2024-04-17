@@ -81,6 +81,7 @@ executable chan-delorean
                       Network.DataClient
                       Network.DataClientTypes
                       Common.Server.JSONSettings
+                      Common.Server.ConsumerSettings
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
