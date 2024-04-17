@@ -20,6 +20,7 @@ import Lib
     )
 import qualified Network.DataClient as Client
 import qualified Common.AttachmentType as At
+import Sync
 
 newtype CliArgs = CliArgs
   { settingsFile :: String
@@ -105,11 +106,18 @@ processWebsite settings site_settings = do
 
 main :: IO ()
 main = do
-    putStrLn "Starting channel web synchronization."
-
     settings <- getSettings
     print settings
 
-    _ <- mapConcurrently (processWebsite settings) (websites settings)
+    _ <- if http_fill_all settings
+    then do
+        putStrLn "Starting web backfill"
+        mapConcurrently (processWebsite settings) (websites settings)
+    else return []
 
-    putStrLn "Done."
+    if http_sync_continously settings
+    then syncWebsites settings
+    else return ()
+
+    putStrLn "Done"
+

@@ -16,10 +16,11 @@ module PriorityQueue
     , take
     , put
     , selectSkewedIndex
+    , main
     )
 where
 
-import Prelude hiding (splitAt, take)
+import Prelude hiding (splitAt, take, min, max, elem)
 import Data.Set hiding (take, foldr, map)
 import Data.Ord (comparing)
 import System.Random (StdGen, getStdGen, randomR)
@@ -81,7 +82,7 @@ main = do
     -- let x = fst $ take i q
     -- print (i, priority x)
 
-    let rs = foldr f ([], stdGen) [1..100000]
+    let rs = foldr f ([], stdGen) ([1..100000] :: [ Int ])
     mapM_ pf $ countOccurrences $ fst rs
 
     where
@@ -97,5 +98,4 @@ main = do
 
 countOccurrences :: (Eq a, Ord a) => [a] -> [(a, Int)]
 countOccurrences rolls = map (\x -> (head x, length x)) . group . sort $ rolls
-
 

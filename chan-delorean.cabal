@@ -137,6 +137,7 @@ executable chan-delorean-consoomer
                       Common.Server.ConsumerSettings
                       Common.Server.JSONSettings
                       PriorityQueue
+                      Sync
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:

@@ -683,8 +683,8 @@ processBoard settings fgs@FileGetters {..} site board = do
                 ++ (Boards.pathpart board) ++ ". Error: " ++ errMsg
 
 
-processBoards :: JSONSettings -> FileGetters -> [ FilePath ] -> IO ()
-processBoards settings fgs board_names = do
+getBoards :: JSONSettings -> [ FilePath ] -> IO (Sites.Site, [ Boards.Board ])
+getBoards settings board_names = do
     site :: Sites.Site <- ensureSiteExists settings
     let boardsSet = Set.fromList board_names
     let site_id_ = Sites.site_id site
@@ -700,8 +700,13 @@ processBoards settings fgs board_names = do
             created_boards <- createArchivesForNewBoards settings boardsSet boardnames site_id_
             let boards :: [ Boards.Board ] = archived_boards ++ created_boards
             let boards_we_have_data_for = filter (\board -> Set.member (Boards.pathpart board) boardsSet) boards
-            mapM_ (processBoard settings fgs site) boards_we_have_data_for
+            return (site, boards_we_have_data_for)
 
+
+processBoards :: JSONSettings -> FileGetters -> [ FilePath ] -> IO ()
+processBoards settings fgs board_names =
+    getBoards settings board_names >>= \(site, boards) ->
+        mapM_ (processBoard settings fgs site) boards
 
 
 processBackupDirectory :: JSONSettings -> IO ()
