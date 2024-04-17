@@ -136,6 +136,7 @@ executable chan-delorean-consoomer
                       Network.DataClientTypes
                       Common.Server.ConsumerSettings
                       Common.Server.JSONSettings
+                      PriorityQueue
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
@@ -159,7 +160,9 @@ executable chan-delorean-consoomer
                       mime-types,
                       perceptual-hash,
                       async,
-                      temporary
+                      temporary,
+                      stm,
+                      random
 
     -- Directories containing source files.
     hs-source-dirs:   src

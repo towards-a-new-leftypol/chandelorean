@@ -83,6 +83,7 @@ httpFileGetters settings = FileGetters
         putStrLn $ "Copy Or Move (Move) src: " ++ src ++ " dest: " ++ dest
         createDirectoryIfMissing True common_dest
         moveFile src dest
+
         case m_thumb_src of
           Nothing -> return ()
           Just thumb_src -> moveFile thumb_src thumb_dest
