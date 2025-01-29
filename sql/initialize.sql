@@ -266,6 +266,51 @@ CREATE TYPE catalog_grid_result AS
     );
 
 
+CREATE OR REPLACE FUNCTION fetch_catalog(max_time timestamptz, max_row_read int DEFAULT 10000)
+RETURNS SETOF catalog_grid_result AS $$
+    WITH
+        top AS
+        (
+            SELECT * FROM fetch_top_threads(max_time, max_row_read) AS top
+        ),
+        tall_posts AS
+        (
+            SELECT
+                top.post_count AS estimated_post_count,
+                posts.post_id,
+                posts.board_post_id,
+                posts.creation_time,
+                top.bump_time,
+                posts.body,
+                posts.subject,
+                posts.thread_id,
+                posts.embed
+            FROM top
+            JOIN posts ON top.thread_id = posts.thread_id AND posts.local_idx = 1
+            WHERE creation_time < max_time
+        )
+    SELECT
+        -- post_counts.post_count,
+        tall_posts.*,
+        threads.board_thread_id, -- this should be part of the url path when creating links, not thread_id (that's internal)
+        boards.pathpart,
+        sites."name",
+        -- sites.site_id,
+        attachments.mimetype AS file_mimetype,
+        attachments.illegal AS file_illegal,
+        -- attachments.resolution AS file_resolution,
+        attachments.board_filename AS file_name,
+        attachments.file_extension,
+        attachments.thumb_extension AS file_thumb_extension
+    FROM tall_posts
+    JOIN threads ON tall_posts.thread_id = threads.thread_id
+    JOIN boards ON threads.board_id = boards.board_id
+    JOIN sites ON sites.site_id = boards.site_id
+    LEFT OUTER JOIN attachments ON attachments.post_id = tall_posts.post_id AND attachments.attachment_idx = 1
+    ORDER BY bump_time DESC;
+$$ LANGUAGE sql;
+
+
 -- Function: search_posts
 --
 -- This function performs a full-text search on the `posts` table using PostgreSQL's text search features.
