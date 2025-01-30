@@ -13,5 +13,5 @@
   "jwt": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiY2hhbl9hcmNoaXZlciJ9.rGIKZokTDKTuQLIv8138bUby5PELfDipYYIDpJzH02c",
   "media_root_path": "/home/phil/linixy/tmp/chan_archive_media_repaired/archive",
   "http_fill_all": false,
-  "http_sync_continously": false
+  "http_sync_continously": true
 }

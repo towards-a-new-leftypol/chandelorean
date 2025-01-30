@@ -1,21 +1,31 @@
+{-# LANGUAGE RecordWildCards #-}
+
 module Sync where
 
-import Common.Server.ConsumerSettings
-import Lib (getBoards, toClientSettings)
-import SitesType (Site)
-import BoardsType (Board)
+import Common.Server.ConsumerSettings as Settings
+import Common.Server.JSONSettings as JSONSettings
+import Network.DataClient (getLatestPostsPerBoard)
 
-getSiteBoards :: ConsumerJSONSettings -> JSONSiteSettings -> IO (Site, [ Board ])
-getSiteBoards settings site_settings =
-    let client_settings = toClientSettings settings site_settings
-    in getBoards
-        client_settings
-        (boards site_settings)
+consumerSettingsToPartialJSONSettings :: Settings.ConsumerJSONSettings -> JSONSettings.JSONSettings
+consumerSettingsToPartialJSONSettings ConsumerJSONSettings {..} =
+    JSONSettings
+        { JSONSettings.postgrest_url = postgrest_url
+        , JSONSettings.jwt = jwt
+        , backup_read_root = undefined
+        , JSONSettings.media_root_path
+        , site_name = undefined
+        , site_url = undefined
+        }
 
 syncWebsites :: ConsumerJSONSettings -> IO ()
-syncWebsites _ = do
+syncWebsites consumer_settings = do
     putStrLn "Starting channel web synchronization."
 
+    let json_settings = consumerSettingsToPartialJSONSettings consumer_settings
+
+    asdf <- getLatestPostsPerBoard json_settings
+
+    print asdf
     -- first we need all the (Site, Board) tuples
     -- perhaps we even want all (Site, Board, Thread) pairs
     -- But then we don't load the posts of each thread, instead only do

@@ -80,6 +80,7 @@ executable chan-delorean
                       Data.WordUtil
                       Network.DataClient
                       Network.DataClientTypes
+                      Network.GetLatestPostsPerBoardResponse
                       Common.Server.JSONSettings
                       Common.Server.ConsumerSettings
 

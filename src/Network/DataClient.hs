@@ -1,5 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveAnyClass #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use <&>" #-}
 
 module Network.DataClient
   ( HttpError(..)
@@ -19,6 +21,7 @@ module Network.DataClient
   , postAttachments
   , getJSON
   , getFile
+  , getLatestPostsPerBoard
   ) where
 
 import Control.Monad (forM)
@@ -49,6 +52,7 @@ import qualified Common.AttachmentType as Attachments
 import qualified Common.PostsType  as Posts
 import Common.Network.HttpClient
 import qualified Network.DataClientTypes as T
+import qualified Network.GetLatestPostsPerBoardResponse as GLPPBR
 
 
 data PostId = PostId
@@ -233,14 +237,20 @@ getFile url = do
     case result of
         Left (err :: HttpError) -> do
             putStrLn $ "getFile " ++ url ++ " Error!"
-            putStrLn $ show err
+            print err
             return Nothing
         Right lbs -> do
             putStrLn $ "getFile " ++ url ++ " SUCCESS!"
             tmp_root <- getCanonicalTemporaryDirectory
             (tmp_filepath, tmp_filehandle) <- openBinaryTempFile tmp_root "chan.attachment"
             putStrLn $ "Created " ++ tmp_filepath
-            putStrLn $ "Writing attachment..."
+            putStrLn "Writing attachment..."
             LBS.hPut tmp_filehandle lbs
             hClose tmp_filehandle
             return $ Just tmp_filepath
+
+
+-- | Function to handle each chunk.
+getLatestPostsPerBoard :: T.JSONSettings -> IO (Either HttpError [ GLPPBR.GetLatestPostsPerBoardResponse ])
+getLatestPostsPerBoard settings =
+    post settings "/rpc/get_latest_posts_per_board" mempty False >>= return . eitherDecodeResponse

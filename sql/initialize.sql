@@ -409,7 +409,6 @@ RETURNS TABLE (
     post_id bigint,
     board_post_id bigint,
     creation_time timestamp with time zone,
-    body text,
     thread_id bigint,
     board_thread_id bigint
 ) AS $$
@@ -420,7 +419,6 @@ RETURNS TABLE (
            p.post_id,
            p.board_post_id,
            p.creation_time,
-           p.body,
            t.thread_id,
            t.board_thread_id
       FROM boards b

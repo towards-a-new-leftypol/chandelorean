@@ -290,6 +290,7 @@ SELECT DISTINCT ON (b.board_id)
   JOIN posts   p ON p.thread_id = t.thread_id
  ORDER BY b.board_id, p.creation_time DESC;
 
+
 CREATE OR REPLACE FUNCTION get_latest_posts_per_board()
 RETURNS TABLE (
     board_id int,
@@ -298,7 +299,6 @@ RETURNS TABLE (
     post_id bigint,
     board_post_id bigint,
     creation_time timestamp with time zone,
-    body text,
     thread_id bigint,
     board_thread_id bigint
 ) AS $$
@@ -309,7 +309,6 @@ RETURNS TABLE (
            p.post_id,
            p.board_post_id,
            p.creation_time,
-           p.body,
            t.thread_id,
            t.board_thread_id
       FROM boards b

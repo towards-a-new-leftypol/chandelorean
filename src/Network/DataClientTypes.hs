@@ -10,4 +10,3 @@ data ThreadMaxIdx = ThreadMaxIdx
     { thread_id :: Int64
     , max_idx   :: Int
     } deriving (Show, Generic, FromJSON)
-
