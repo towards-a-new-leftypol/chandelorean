@@ -222,3 +222,100 @@ SELECT * FROM boards;
 	
 SELECT * FROM threads WHERE thread_id = 11314;
 ANALYZE posts;
+
+SELECT count(*) from attachments;
+
+SELECT * FROM attachments WHERE post_id = 253383;
+SELECT * from attachments WHERE board_filename = '1722466065515';
+SELECT count(*) attachments WHERE attachment_id < (SELECT attachment_id FROM attachments WHERE board_filename = '1722466065515');
+SELECT max(attachment_id) FROM attachments a;
+SELECT pg_get_serial_sequence('attachments', 'attachment_id');
+SELECT setval(pg_get_serial_sequence('attachments', 'attachment_id'), COALESCE(198853, 1), true);
+
+
+UPDATE attachments SET thumb_extension = 'png'
+WHERE
+	attachment_id IN
+	(
+		SELECT a.attachment_id
+		FROM attachments a
+		JOIN posts p ON a.post_id = p.post_id
+		JOIN threads t ON p.thread_id = t.thread_id
+		JOIN boards b ON t.board_id = b.board_id
+		JOIN sites s ON b.site_id = s.site_id
+		WHERE s.name = 'leftychan'
+		AND a.thumb_extension = 'jpg'
+	);
+
+
+SELECT * FROM posts WHERE board_post_id = 129;
+SELECT * FROM attachments WHERE post_id = 461287;
+
+SELECT count(a.*)
+FROM attachments a
+JOIN posts p ON a.post_id = p.post_id
+JOIN threads t ON p.thread_id = t.thread_id
+JOIN boards b ON t.board_id = b.board_id
+JOIN sites s ON b.site_id = s.site_id
+WHERE s.name = 'leftychan'
+AND a.thumb_extension = 'jpg';
+	
+
+SELECT * FROM posts
+JOIN threads ON threads.thread_id = posts.thread_id
+JOIN boards ON boards.board_id = threads.board_id
+WHERE boards.pathpart = 'leftypol'
+	AND boards.site_id = 1
+ORDER BY posts.creation_time DESC
+LIMIT 1;
+
+SELECT * FROM posts
+ORDER BY posts.creation_time DESC 
+LIMIT 1;
+
+SELECT boards.board_id, boards.pathpart, sites.name FROM boards JOIN sites ON sites.site_id = boards.site_id;
+
+SELECT DISTINCT ON (b.board_id) 
+       b.board_id,
+       b.site_id,
+       b.pathpart,
+       p.post_id,
+       p.board_post_id,
+       p.creation_time,
+       p.body,
+       t.thread_id,
+       t.board_thread_id
+  FROM boards b
+  JOIN threads t ON t.board_id = b.board_id
+  JOIN posts   p ON p.thread_id = t.thread_id
+ ORDER BY b.board_id, p.creation_time DESC;
+
+CREATE OR REPLACE FUNCTION get_latest_posts_per_board()
+RETURNS TABLE (
+    board_id int,
+    site_id int,
+    pathpart text,
+    post_id bigint,
+    board_post_id bigint,
+    creation_time timestamp with time zone,
+    body text,
+    thread_id bigint,
+    board_thread_id bigint
+) AS $$
+    SELECT DISTINCT ON (b.board_id) 
+           b.board_id,
+           b.site_id,
+           b.pathpart,
+           p.post_id,
+           p.board_post_id,
+           p.creation_time,
+           p.body,
+           t.thread_id,
+           t.board_thread_id
+      FROM boards b
+      JOIN threads t ON t.board_id = b.board_id
+      JOIN posts   p ON p.thread_id = t.thread_id
+     ORDER BY b.board_id, p.creation_time DESC;
+$$ LANGUAGE sql STABLE;
+
+SELECT * FROM get_latest_posts_per_board();

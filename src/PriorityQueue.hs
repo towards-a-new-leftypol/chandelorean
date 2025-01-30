@@ -87,7 +87,7 @@ main = do
 
     where
         pf :: (Show a, Show b) => (a, b) -> IO ()
-        pf (a, b) = putStrLn $ (show a) ++ "," ++ (show b)
+        pf (a, b) = putStrLn $ show a ++ "," ++ show b
 
         f _ (xs, gen) =
             let (x, newgen) = selectSkewedIndex (size q) gen
@@ -97,5 +97,5 @@ main = do
         q = fromList [ Elem i undefined | i <- [1..100] ]
 
 countOccurrences :: (Eq a, Ord a) => [a] -> [(a, Int)]
-countOccurrences rolls = map (\x -> (head x, length x)) . group . sort $ rolls
+countOccurrences = map (\x -> (head x, length x)) . group . sort
 
