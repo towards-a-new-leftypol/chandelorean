@@ -141,6 +141,7 @@ executable chan-delorean-consoomer
                       Common.Server.JSONSettings
                       PriorityQueue
                       Sync
+                      BoardQueueElem
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
@@ -166,8 +167,8 @@ executable chan-delorean-consoomer
                       async,
                       temporary,
                       stm,
-                      random,
-                      transformers
+                      random
+                      -- transformers
 
     -- Directories containing source files.
     hs-source-dirs:   src

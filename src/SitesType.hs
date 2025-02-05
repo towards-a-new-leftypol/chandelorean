@@ -11,5 +11,5 @@ data Site = Site
     { site_id :: Int
     , name :: String
     , url :: String
-    } deriving (Show, Generic, FromJSON)
+    } deriving (Show, Eq, Generic, FromJSON)
 

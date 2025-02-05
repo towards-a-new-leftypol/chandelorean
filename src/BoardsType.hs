@@ -12,5 +12,5 @@ data Board = Board
     , name      :: Maybe String
     , pathpart  :: String
     , site_id   :: Int
-    } deriving (Show, Generic, FromJSON)
+    } deriving (Show, Eq, Generic, FromJSON)
 

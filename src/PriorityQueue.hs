@@ -32,7 +32,7 @@ data Elem a = Elem
     , element :: a
     }
 
-instance Ord (Elem  a) where
+instance Ord (Elem a) where
     compare = comparing priority
 
 
@@ -40,17 +40,17 @@ instance Eq (Elem a) where
     (==) x y = priority x == priority y
 
 
-type Queue a = Set (Elem a)
+type Queue a = Set a
 
 
-take :: Int -> Queue a -> (Elem a, Queue a)
+take :: (Ord a) => Int -> Queue a -> (a, Queue a)
 take n set =
     let (_, greater) = splitAt (size set - n - 1) set
         elem = findMin greater
     in (elem, delete elem set)
 
 
-put :: Elem a -> Queue a -> Queue a
+put :: (Ord a) => a -> Queue a -> Queue a
 put = insert
 
 
@@ -93,7 +93,7 @@ main = do
             let (x, newgen) = selectSkewedIndex (size q) gen
             in (x:xs, newgen)
 
-        q :: Queue Int
+        q :: Queue (Elem Int)
         q = fromList [ Elem i undefined | i <- [1..100] ]
 
 countOccurrences :: (Eq a, Ord a) => [a] -> [(a, Int)]
