@@ -36,7 +36,6 @@ import qualified Data.ByteString.Lazy as B
 import Data.Aeson (FromJSON)
 
 import JSONParsing
-import Common.Server.JSONSettings
 import qualified JSONCommonTypes as JS
 import qualified JSONPost   as JSONPosts
 import qualified Network.DataClient as Client
@@ -45,9 +44,10 @@ import qualified BoardsType as Boards
 import qualified ThreadType as Threads
 import qualified Common.AttachmentType as At
 import qualified Common.PostsType as Posts
-import qualified Hash as Hash
+import qualified Hash
 import qualified Data.WordUtil as Words
 import Common.Server.JSONSettings as J
+import Common.Network.HttpClient (HttpError)
 import qualified Common.Server.ConsumerSettings as CS
 
 newtype SettingsCLI = SettingsCLI
@@ -75,10 +75,8 @@ listCatalogDirectories settings = do
       doesFileExist catalogPath
 
 
-ensureSiteExists :: JSONSettings -> IO Sites.Site
-ensureSiteExists settings = do
-    sitesResult <- Client.getAllSites settings
-
+ensureSiteExists :: JSONSettings -> Either HttpError [ Sites.Site ] -> IO Sites.Site
+ensureSiteExists settings sitesResult = do
     case sitesResult of
         Right siteList ->
             case find (\site -> Sites.name site == site_name settings) siteList of
@@ -696,7 +694,9 @@ processBoard settings fgs@FileGetters {..} site board = do
 
 getBoards :: JSONSettings -> [ FilePath ] -> IO (Sites.Site, [ Boards.Board ])
 getBoards settings board_names = do
-    site :: Sites.Site <- ensureSiteExists settings
+    sitesResult <- Client.getAllSites settings
+    site :: Sites.Site <- ensureSiteExists settings sitesResult
+
     let boardsSet = Set.fromList board_names
     let site_id_ = Sites.site_id site
     boards_result <- Client.getSiteBoards settings site_id_

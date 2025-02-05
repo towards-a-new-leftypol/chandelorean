@@ -136,6 +136,7 @@ executable chan-delorean-consoomer
                       Data.WordUtil
                       Network.DataClient
                       Network.DataClientTypes
+                      Network.GetLatestPostsPerBoardResponse
                       Common.Server.ConsumerSettings
                       Common.Server.JSONSettings
                       PriorityQueue
@@ -165,7 +166,8 @@ executable chan-delorean-consoomer
                       async,
                       temporary,
                       stm,
-                      random
+                      random,
+                      transformers
 
     -- Directories containing source files.
     hs-source-dirs:   src

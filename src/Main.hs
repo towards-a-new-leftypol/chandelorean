@@ -1,4 +1,6 @@
 {-# LANGUAGE RecordWildCards #-}
+{-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
+{-# HLINT ignore "Use when" #-}
 
 module Main (main) where
 
@@ -6,7 +8,7 @@ import System.Exit (exitFailure)
 import qualified Data.ByteString.Lazy as B
 import System.Console.CmdArgs (cmdArgs, Data, Typeable)
 import Data.Aeson (decode)
-import Control.Concurrent.Async (mapConcurrently)
+import Control.Concurrent.Async (mapConcurrently_)
 
 import Common.Server.ConsumerSettings
 import Lib
@@ -53,12 +55,15 @@ main = do
     _ <- if http_fill_all settings
     then do
         putStrLn "Starting web backfill"
-        mapConcurrently (processWebsite settings) (websites settings)
-    else return []
-
-    if http_sync_continously settings
-    then syncWebsites settings
+        mapConcurrently_ (processWebsite settings) (websites settings)
+        putStrLn "Finished web backfill"
     else return ()
 
-    putStrLn "Done"
+    if http_sync_continously settings
+    then do
+        putStrLn "Starting web sync loop"
+        syncWebsites settings
+    else return ()
+
+    putStrLn "Done. Quitting."
 

@@ -222,7 +222,7 @@ eitherDecodeResponse (Left err) = Left err
 eitherDecodeResponse (Right bs) =
     case eitherDecode bs of
         Right val -> Right val
-        Left err -> Left $ StatusCodeError 500 $ LC8.pack $ "Failed to decode JSON: " ++ err ++ " " ++ (show bs)
+        Left err -> Left $ StatusCodeError 500 $ LC8.pack $ "Failed to decode JSON: " ++ err ++ " " ++ show bs
 
 
 getJSON :: (FromJSON a) => String -> IO (Either HttpError a)
@@ -250,7 +250,6 @@ getFile url = do
             return $ Just tmp_filepath
 
 
--- | Function to handle each chunk.
 getLatestPostsPerBoard :: T.JSONSettings -> IO (Either HttpError [ GLPPBR.GetLatestPostsPerBoardResponse ])
 getLatestPostsPerBoard settings =
     post settings "/rpc/get_latest_posts_per_board" mempty False >>= return . eitherDecodeResponse
