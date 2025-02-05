@@ -43,90 +43,91 @@ syncWebsites consumer_settings = do
 
     latest_posts_per_board_results <- Client.getLatestPostsPerBoard json_settings
 
-    case latest_posts_per_board_results of
+    latest_posts_per_board <- case latest_posts_per_board_results of
         Left e -> do
             putStrLn $ "Error getting board information: " ++ show e
             exitFailure
-        Right latest_posts_per_board -> do
-            print latest_posts_per_board
+        Right latest_posts_per_board -> return latest_posts_per_board
 
-            let boards_per_site :: Map.Map Int [ String ] =
-                    foldl
-                        (\m b ->
-                            let key = GLPPBR.site_id b
-                                pathpart = GLPPBR.pathpart b
-                            in
+    print latest_posts_per_board
 
-                            Map.insertWith (++) key [ pathpart ] m
-                        )
-                        Map.empty
-                        latest_posts_per_board
+    let boards_per_site :: Map.Map Int [ String ] =
+            foldl
+                (\m b ->
+                    let key = GLPPBR.site_id b
+                        pathpart = GLPPBR.pathpart b
+                    in
 
-            let board_id_to_last_modified = Map.fromList $
-                    map
-                        (\b -> (GLPPBR.board_id b, GLPPBR.creation_time b))
-                        latest_posts_per_board
-
-            let site_name_to_site :: Map.Map String Site.Site =
-                    Map.fromList $ map (\s -> (Site.name s, s)) sites
-
-            let site_id_board_id_to_glppbr = Map.fromList $
-                    map
-                        (\b -> ((GLPPBR.site_id b, GLPPBR.pathpart b), b))
-                        latest_posts_per_board
-
-            site_and_board_list_ <- mapM
-                (\site_settings -> do
-                    let site = (Map.!) site_name_to_site (S.name site_settings)
-                    let s_id = Site.site_id site
-
-                    let existing_board_info =
-                            mapMaybe
-                                (\board_pathpart ->
-                                    Map.lookup (s_id, board_pathpart) site_id_board_id_to_glppbr
-                                )
-                                (S.boards site_settings)
-
-                    let existing_boards =
-                            map
-                                (\b -> Board.Board
-                                    { Board.board_id = GLPPBR.board_id b
-                                    , Board.name = Nothing
-                                    , Board.pathpart = GLPPBR.pathpart b
-                                    , Board.site_id = GLPPBR.site_id b
-                                    }
-                                )
-                                existing_board_info
-
-                    boards <- Lib.createArchivesForNewBoards
-                            (Lib.toClientSettings consumer_settings site_settings)
-                            (Set.fromList $ S.boards site_settings)
-                            ((Map.!) boards_per_site s_id)
-                            s_id
-
-                    return (site, existing_boards ++ boards)
-
+                    Map.insertWith (++) key [ pathpart ] m
                 )
-                (S.websites consumer_settings)
+                Map.empty
+                latest_posts_per_board
 
-            let site_and_board_list = concatMap (\(a, bs) -> map (\b -> (a, b)) bs) site_and_board_list_
+    let board_id_to_last_modified = Map.fromList $
+            map
+                (\b -> (GLPPBR.board_id b, GLPPBR.creation_time b))
+                latest_posts_per_board
 
-            let queue_elems =
+    let site_name_to_site :: Map.Map String Site.Site =
+            Map.fromList $ map (\s -> (Site.name s, s)) sites
+
+    let site_id_board_id_to_glppbr = Map.fromList $
+            map
+                (\b -> ((GLPPBR.site_id b, GLPPBR.pathpart b), b))
+                latest_posts_per_board
+
+    site_and_board_list_ <- mapM
+        (\site_settings -> do
+            let site = (Map.!) site_name_to_site (S.name site_settings)
+            let s_id = Site.site_id site
+
+            let existing_board_info =
+                    mapMaybe
+                        (\board_pathpart ->
+                            Map.lookup (s_id, board_pathpart) site_id_board_id_to_glppbr
+                        )
+                        (S.boards site_settings)
+
+            let existing_boards =
                     map
-                        (\(site, board) -> QE.BoardQueueElem
-                            { QE.site = site
-                            , QE.board = board
-                            , QE.last_modified =
-                                (Map.!)
-                                    board_id_to_last_modified
-                                    (Board.board_id board)
+                        (\b -> Board.Board
+                            { Board.board_id = GLPPBR.board_id b
+                            , Board.name = Nothing
+                            , Board.pathpart = GLPPBR.pathpart b
+                            , Board.site_id = GLPPBR.site_id b
                             }
                         )
-                        site_and_board_list
+                        existing_board_info
 
-            let pq :: PQ.Queue QE.BoardQueueElem = Set.fromList queue_elems
+            boards <- Lib.createArchivesForNewBoards
+                    (Lib.toClientSettings consumer_settings site_settings)
+                    (Set.fromList $ S.boards site_settings)
+                    ((Map.!) boards_per_site s_id)
+                    s_id
 
-            print pq
+            return (site, existing_boards ++ boards)
+
+        )
+        (S.websites consumer_settings)
+
+    let site_and_board_list = concatMap (\(a, bs) -> map (\b -> (a, b)) bs) site_and_board_list_
+
+    let queue_elems =
+            map
+                (\(site, board) -> QE.BoardQueueElem
+                    { QE.site = site
+                    , QE.board = board
+                    , QE.last_modified =
+                        (Map.!)
+                            board_id_to_last_modified
+                            (Board.board_id board)
+                    }
+                )
+                site_and_board_list
+
+    let pq :: PQ.Queue QE.BoardQueueElem = Set.fromList queue_elems
+
+    print pq
 
     -- we have our boards last modified timestamps
     -- get list of boards per site
