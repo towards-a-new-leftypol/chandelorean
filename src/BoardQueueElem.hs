@@ -13,4 +13,4 @@ data BoardQueueElem = BoardQueueElem
 
 instance Ord BoardQueueElem where
   (<=) :: BoardQueueElem -> BoardQueueElem -> Bool
-  a <= b = last_modified a >= last_modified b
+  a <= b = last_modified a <= last_modified b
