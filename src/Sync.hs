@@ -10,7 +10,7 @@ import qualified Data.Set as Set
 import Data.Maybe (mapMaybe)
 import Control.Concurrent.QSem
 import Control.Concurrent.STM.TVar
-import Control.Concurrent.STM (atomically)
+import Control.Concurrent.STM (atomically, retry)
 import Control.Concurrent (threadDelay, forkFinally)
 import System.Random (StdGen, getStdGen)
 
@@ -40,6 +40,7 @@ consumerSettingsToPartialJSONSettings S.ConsumerJSONSettings {..} =
 
 threadMain :: QE.BoardQueueElem -> IO ()
 threadMain board_elem = do
+    threadDelay $ 1 * 10^6
     putStrLn $ Board.pathpart $ QE.board board_elem
 
 
@@ -56,12 +57,12 @@ mainLoop csmr_settings pq = do
         loop sem stdGen pqvar = do
             waitQSem sem -- make sure we don't have too many threads running
 
-            (m_board_elem, stdGen_) <- atomically $ do
+            (board_elem, stdGen_) <- atomically $ do
                 pq_a <- readTVar pqvar
 
                 if Set.null pq_a
                 then
-                    return (Nothing, stdGen)
+                    retry
                 else do
                     let (i, stdGen_) = PQ.selectSkewedIndex (Set.size pq) stdGen
 
@@ -69,19 +70,20 @@ mainLoop csmr_settings pq = do
 
                     writeTVar pqvar pq_b
 
-                    return (Just board_elem, stdGen_)
+                    return (board_elem, stdGen_)
 
-            _ <- case m_board_elem of
-                Nothing -> return undefined
-                Just board_elem -> do
-                    forkFinally (threadMain board_elem) $ \threadResult -> do
-                        case threadResult of
-                            Left e -> print e
-                            _ -> return ()
+            _ <- forkFinally (threadMain board_elem) $ \threadResult -> do
+                case threadResult of
+                    Left e -> print e
+                    _ -> return ()
 
-                        atomically $ modifyTVar' pqvar (PQ.put board_elem)
+                -- the board_elem we took will have been modified
+                -- inside threadMain so, threadMain should probably
+                -- handle updating the pqvar by itself.
+                -- because board_elem here will be a new board_elem'
+                atomically $ modifyTVar' pqvar (PQ.put board_elem)
 
-                        signalQSem sem
+                signalQSem sem
 
             threadDelay (S.sync_loop_timeout_microseconds csmr_settings)
 
@@ -100,6 +102,7 @@ syncWebsites csmr_settings = do
 
     print sites
 
+    -- initial query to populate boards
     latest_posts_per_board_results <- Client.getLatestPostsPerBoard json_settings
 
     latest_posts_per_board <- case latest_posts_per_board_results of
@@ -212,8 +215,8 @@ syncWebsites csmr_settings = do
     --  - finish using ExceptT and use sites, latest_posts_per_board to populate
     --    our PriorityQueue
     --  - write event loop that
-    --       - get pq from stm shared value
-    --       - uses the pq (there was something about the timestamps in the pq having to be reversed btw)
+    --       - get pq from stm shared value ✓
+    --       - uses the pq (there was something about the timestamps in the pq having to be reversed btw) ✓
     --       - ensures threads
     --       - has a value that should be added to the pq
     --       - uses stm to update pq shared value
