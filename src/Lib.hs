@@ -3,8 +3,23 @@
 {-# HLINT ignore "Use fromMaybe" #-}
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE RecordWildCards #-}
+{-# HLINT ignore "Use when" #-}
+{-# HLINT ignore "Use tuple-section" #-}
+{-# HLINT ignore "Use zipWith" #-}
+{-# HLINT ignore "Use <&>" #-}
+{-# HLINT ignore "Use if" #-}
+{-# HLINT ignore "Move brackets to avoid $" #-}
 
-module Lib where
+module Lib
+    ( toClientSettings
+    , createArchivesForNewBoards
+    , ensureSiteExists
+    , httpFileGetters
+    , processFiles
+    , processBoards
+    , processBackupDirectory
+    , SettingsCLI (..)
+    ) where
 
 import System.Exit
 import Data.Int (Int64)
@@ -235,21 +250,6 @@ apiPostToArchivePost local_idx thread post =
     , Posts.embed           = JSONPosts.embed post
     , Posts.local_idx       = local_idx
     }
-
-
--- | A version of 'concatMap' that works with a monadic predicate.
--- Stolen from package extra Control.Monad.Extra
-concatMapM :: Monad m => (a -> m [b]) -> [a] -> m [b]
-{-# INLINE concatMapM #-}
-concatMapM op = foldr f (pure [])
-    where f x xs = do
-            x_ <- op x
-
-            if null x_
-            then xs
-            else do
-                xs_ <- xs
-                pure $ x_ ++ xs_
 
 
 addPostsToTuples
@@ -526,7 +526,7 @@ processFiles settings fgs tuples = do -- perfect just means that our posts have 
                             let
                                 dim = (JSONPosts.w p) >>= \w -> ((JSONPosts.h p) >>= \h -> Just $ At.Dimension w h)
                             in
-                                ( site
+                                [( site
                                 , board
                                 , thread
                                 , q
@@ -536,7 +536,7 @@ processFiles settings fgs tuples = do -- perfect just means that our posts have 
                                     , At.resolution = dim
                                     , At.post_id = fromJust $ Posts.post_id q
                                     }
-                                ) : []
+                                )]
 
         insertRecord
             :: Ord a
@@ -657,6 +657,7 @@ localFileGetters settings = FileGetters
         withRoot = (backup_read_root settings </>)
 
 
+-- This one is not designed to run concurrently
 processBoard :: JSONSettings -> FileGetters -> Sites.Site -> Boards.Board -> IO ()
 processBoard settings fgs@FileGetters {..} site board = do
     let catalogPath = Boards.pathpart board </> "catalog.json"
