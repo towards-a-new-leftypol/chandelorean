@@ -7,14 +7,14 @@ module Sync where
 import System.Exit (exitFailure)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
-import Data.Maybe (mapMaybe)
+import Data.Maybe (mapMaybe, fromMaybe)
 import Control.Concurrent.QSem
 import Control.Concurrent.STM.TVar
 import Control.Concurrent.STM (atomically, retry)
 import Control.Concurrent (threadDelay, forkFinally)
 import System.Random (StdGen, getStdGen)
-
--- import Control.Monad.Trans.Except (ExceptT, runExceptT)
+import Control.Monad.Trans.Except (runExceptT)
+import Control.Monad.IO.Class (liftIO)
 
 import qualified Common.Server.ConsumerSettings as S
 import qualified Common.Server.JSONSettings as JS
@@ -25,6 +25,8 @@ import qualified SitesType as Site
 import qualified BoardsType as Board
 import qualified BoardQueueElem as QE
 import qualified PriorityQueue as PQ
+import qualified Lib2
+import qualified JSONParsing as JS
 
 consumerSettingsToPartialJSONSettings :: S.ConsumerJSONSettings -> JS.JSONSettings
 consumerSettingsToPartialJSONSettings S.ConsumerJSONSettings {..} =
@@ -40,8 +42,23 @@ consumerSettingsToPartialJSONSettings S.ConsumerJSONSettings {..} =
 
 threadMain :: QE.BoardQueueElem -> IO ()
 threadMain board_elem = do
-    threadDelay $ 1 * 10^6
+    -- really need to get the board catalog here
     putStrLn $ Board.pathpart $ QE.board board_elem
+
+    thread_results <- runExceptT $ do
+        catalog_results <- Lib2.getCatalogJSON (QE.site board_elem) (QE.board board_elem)
+
+        let catalog_threads = concatMap (fromMaybe [] . JS.threads) catalog_results
+
+        let board_last_modified = QE.last_modified board_elem
+
+        let changed_threads = filter
+                (\t -> Lib.epochToUTCTime (JS.last_modified t) > board_last_modified)
+                catalog_threads
+
+        liftIO $ print changed_threads
+
+    print thread_results
 
 
 mainLoop :: S.ConsumerJSONSettings -> PQ.Queue QE.BoardQueueElem -> IO ()
@@ -220,3 +237,5 @@ syncWebsites csmr_settings = do
     --       - ensures threads
     --       - has a value that should be added to the pq
     --       - uses stm to update pq shared value
+    --
+    --

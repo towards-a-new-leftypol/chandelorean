@@ -19,6 +19,7 @@ module Lib
     , processBoards
     , processBackupDirectory
     , SettingsCLI (..)
+    , epochToUTCTime
     ) where
 
 import System.Exit
