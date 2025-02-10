@@ -20,6 +20,7 @@ module Lib
     , processBackupDirectory
     , SettingsCLI (..)
     , epochToUTCTime
+    , apiThreadToArchiveThread
     ) where
 
 import System.Exit
@@ -62,7 +63,7 @@ import qualified Common.AttachmentType as At
 import qualified Common.PostsType as Posts
 import qualified Hash
 import qualified Data.WordUtil as Words
-import Common.Server.JSONSettings as J
+import qualified Common.Server.JSONSettings as J
 import Common.Network.HttpClient (HttpError)
 import qualified Common.Server.ConsumerSettings as CS
 
@@ -77,9 +78,9 @@ moveFile src dst =
     B.readFile src >>= B.writeFile dst >> removeFile src
 
 
-listCatalogDirectories :: JSONSettings -> IO [ FilePath ]
+listCatalogDirectories :: J.JSONSettings -> IO [ FilePath ]
 listCatalogDirectories settings = do
-    allDirs <- listDirectory (backup_read_root settings)
+    allDirs <- listDirectory (J.backup_read_root settings)
     let filteredDirs = filter (`notElem` excludedDirs) allDirs
     filterM hasCatalog filteredDirs
 
@@ -87,31 +88,31 @@ listCatalogDirectories settings = do
     excludedDirs = ["sfw", "alt", "overboard"]
 
     hasCatalog dir = do
-      let catalogPath = backup_read_root settings </> dir </> "catalog.json"
+      let catalogPath = J.backup_read_root settings </> dir </> "catalog.json"
       doesFileExist catalogPath
 
 
-ensureSiteExists :: JSONSettings -> Either HttpError [ Sites.Site ] -> IO Sites.Site
+ensureSiteExists :: J.JSONSettings -> Either HttpError [ Sites.Site ] -> IO Sites.Site
 ensureSiteExists settings sitesResult = do
     case sitesResult of
         Right siteList ->
-            case find (\site -> Sites.name site == site_name settings) siteList of
+            case find (\site -> Sites.name site == J.site_name settings) siteList of
             Just site -> do
-                putStrLn $ site_name settings ++ " already exists!"
+                putStrLn $ J.site_name settings ++ " already exists!"
                 return site
             Nothing -> do
-                putStrLn $ site_name settings ++ " does not exist. Creating..."
+                putStrLn $ J.site_name settings ++ " does not exist. Creating..."
                 postResult <- Client.postSite settings
 
                 case postResult of
                     Right (site:_) -> do
-                        putStrLn $ "Successfully created " ++ site_name settings ++ ". " ++ show site
+                        putStrLn $ "Successfully created " ++ J.site_name settings ++ ". " ++ show site
                         return site
                     Right [] -> do
                         putStrLn "Did not get new site id back from postgrest"
                         exitFailure
                     Left err -> do
-                        putStrLn $ "Failed to create " ++ site_name settings
+                        putStrLn $ "Failed to create " ++ J.site_name settings
                             ++ " Error: " ++ show err
                         exitFailure
 
@@ -121,7 +122,7 @@ ensureSiteExists settings sitesResult = do
 
 
 createArchivesForNewBoards
-    :: JSONSettings
+    :: J.JSONSettings
     -> Set String
     -> [ String ]
     -> Int
@@ -164,7 +165,7 @@ epochToUTCTime = posixSecondsToUTCTime . realToFrac
 
 
 createArchivesForNewThreads
-    :: JSONSettings
+    :: J.JSONSettings
     -> [ Thread ]
     -> [ Threads.Thread ]
     -> Boards.Board
@@ -193,7 +194,7 @@ createArchivesForNewThreads settings all_threads archived_threads board = do
                 all_threads
 
 
-ensureThreads :: JSONSettings -> Boards.Board -> [ Thread ] -> IO [ Threads.Thread ]
+ensureThreads :: J.JSONSettings -> Boards.Board -> [ Thread ] -> IO [ Threads.Thread ]
 ensureThreads settings board all_threads = do
     threads_result <- Client.getThreads settings (Boards.board_id board) (map no all_threads)
 
@@ -311,7 +312,7 @@ phash_mimetypes = Set.fromList
     ]
 
 
-copyOrMoveFiles :: JSONSettings -> FileGetters -> Details -> IO ()
+copyOrMoveFiles :: J.JSONSettings -> FileGetters -> Details -> IO ()
 copyOrMoveFiles settings fgs (site, board, thread, _, path, attachment) = do
     (copyOrMove fgs) common_dest (src, dest) (thumb_src, thumb_dest)
 
@@ -337,7 +338,7 @@ copyOrMoveFiles settings fgs (site, board, thread, _, path, attachment) = do
 
         common_dest :: FilePath
         common_dest
-            = (media_root_path settings)
+            = (J.media_root_path settings)
             </> Sites.name site
             </> Boards.pathpart board
             </> (show $ Threads.board_thread_id thread)
@@ -347,7 +348,7 @@ type Details = (Sites.Site, Boards.Board, Threads.Thread, Posts.Post, At.Paths, 
 
 
 processFiles
-    :: JSONSettings
+    :: J.JSONSettings
     -> FileGetters
     -> [(Sites.Site, Boards.Board, Threads.Thread, JSONPosts.Post, Posts.Post)]
     -> IO ()
@@ -552,7 +553,7 @@ processFiles settings fgs tuples = do -- perfect just means that our posts have 
 
 
 createNewPosts
-    :: JSONSettings
+    :: J.JSONSettings
     -> [ (Threads.Thread, JSONPosts.Post, Client.PostId) ]
     -> IO [ Posts.Post ]
 createNewPosts settings tuples = do
@@ -621,11 +622,11 @@ data FileGetters = FileGetters
     }
 
 
-localFileGetters :: JSONSettings -> FileGetters
+localFileGetters :: J.JSONSettings -> FileGetters
 localFileGetters settings = FileGetters
     { getJSONCatalog = const $ parseJSONCatalog . withRoot
     , getJSONPosts = const $ parsePosts . withRoot
-    , addPathPrefix = ((++) $ backup_read_root settings)
+    , addPathPrefix = ((++) $ J.backup_read_root settings)
     , attachmentPaths = \p -> do
         exists <- doesFileExist (At.file_path p)
         if exists then return (Just p) else return Nothing
@@ -655,11 +656,11 @@ localFileGetters settings = FileGetters
     }
 
     where
-        withRoot = (backup_read_root settings </>)
+        withRoot = (J.backup_read_root settings </>)
 
 
 -- This one is not designed to run concurrently
-processBoard :: JSONSettings -> FileGetters -> Sites.Site -> Boards.Board -> IO ()
+processBoard :: J.JSONSettings -> FileGetters -> Sites.Site -> Boards.Board -> IO ()
 processBoard settings fgs@FileGetters {..} site board = do
     let catalogPath = Boards.pathpart board </> "catalog.json"
     putStrLn $ "catalog file path: " ++ catalogPath
@@ -694,7 +695,7 @@ processBoard settings fgs@FileGetters {..} site board = do
                 ++ (Boards.pathpart board) ++ ". Error: " ++ errMsg
 
 
-getBoards :: JSONSettings -> [ FilePath ] -> IO (Sites.Site, [ Boards.Board ])
+getBoards :: J.JSONSettings -> [ FilePath ] -> IO (Sites.Site, [ Boards.Board ])
 getBoards settings board_names = do
     sitesResult <- Client.getAllSites settings
     site :: Sites.Site <- ensureSiteExists settings sitesResult
@@ -716,13 +717,13 @@ getBoards settings board_names = do
             return (site, boards_we_have_data_for)
 
 
-processBoards :: JSONSettings -> FileGetters -> [ FilePath ] -> IO ()
+processBoards :: J.JSONSettings -> FileGetters -> [ FilePath ] -> IO ()
 processBoards settings fgs board_names =
     getBoards settings board_names >>= \(site, boards) ->
         mapM_ (processBoard settings fgs site) boards
 
 
-processBackupDirectory :: JSONSettings -> IO ()
+processBackupDirectory :: J.JSONSettings -> IO ()
 processBackupDirectory settings = do
     putStrLn "JSON successfully read!"
     print settings  -- print the decoded JSON settings
