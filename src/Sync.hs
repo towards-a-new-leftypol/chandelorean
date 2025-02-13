@@ -55,7 +55,10 @@ threadMain csmr_settings board_elem = do
 
     -- this is essentially the same as Lib.processBoard
     thread_results <- runExceptT $ do
-        catalog_results <- Lib2.httpGetCatalogJSON (QE.site board_elem) (QE.board board_elem)
+        let site = QE.site board_elem
+        let board = QE.board board_elem
+
+        catalog_results <- Lib2.httpGetCatalogJSON site board
 
         let catalog_threads = concatMap (fromMaybe [] . JS.threads) catalog_results
 
@@ -65,13 +68,22 @@ threadMain csmr_settings board_elem = do
                 (\t -> Lib.epochToUTCTime (JS.last_modified t) > board_last_modified)
                 catalog_threads
 
-        let settings = mkJsonSettings csmr_settings $ QE.site board_elem
+
+        let settings = mkJsonSettings csmr_settings site
 
         liftIO $ print changed_threads
 
         threads <- Lib2.saveNewThreads settings (QE.board board_elem) changed_threads
 
-        thread_posts :: [ (Thread.Thread, [ JSONPost.Post ]) ] <- mapM (Lib2.httpGetPostsJSON (QE.site board_elem) (QE.board board_elem)) threads
+        web_posts :: [ (Thread.Thread, [ JSONPost.Post ]) ] <- mapM
+            (Lib2.httpGetPostsJSON site board)
+            threads
+
+        let web_post_tuples
+                :: [ (Site.Site, Board.Board, Thread.Thread, JSONPost.Post) ]
+                = concatMap
+                    (\(t, ps) -> map (\p -> (site, board, t, p)) ps)
+                    web_posts
 
         return ()
 
