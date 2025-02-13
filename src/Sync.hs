@@ -105,10 +105,6 @@ mainLoop csmr_settings pq = do
                     Left e -> print e >> return board_elem
                     Right a -> return a
 
-                -- the board_elem we took will have been modified
-                -- inside threadMain so, threadMain should probably
-                -- handle updating the pqvar by itself.
-                -- because board_elem here will be a new board_elem'
                 atomically $ modifyTVar' pqvar (PQ.put board_elem_)
 
                 signalQSem sem
