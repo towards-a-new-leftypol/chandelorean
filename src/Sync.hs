@@ -31,18 +31,24 @@ import qualified JSONParsing as JS
 consumerSettingsToPartialJSONSettings :: S.ConsumerJSONSettings -> JS.JSONSettings
 consumerSettingsToPartialJSONSettings S.ConsumerJSONSettings {..} =
     JS.JSONSettings
-        { JS.postgrest_url = postgrest_url
-        , JS.jwt = jwt
+        { postgrest_url = postgrest_url
+        , jwt = jwt
         , backup_read_root = undefined
-        , JS.media_root_path
+        , media_root_path
         , site_name = undefined
         , site_url = undefined
         }
 
 
-threadMain :: QE.BoardQueueElem -> IO ()
-threadMain board_elem = do
-    -- really need to get the board catalog here
+mkJsonSettings :: S.ConsumerJSONSettings -> Site.Site -> JS.JSONSettings
+mkJsonSettings cs site = (consumerSettingsToPartialJSONSettings cs)
+    { JS.site_name = Site.name site
+    , JS.site_url = Site.url site
+    }
+
+
+threadMain :: S.ConsumerJSONSettings -> QE.BoardQueueElem -> IO ()
+threadMain csmr_settings board_elem = do
     putStrLn $ Board.pathpart $ QE.board board_elem
 
     thread_results <- runExceptT $ do
@@ -56,7 +62,12 @@ threadMain board_elem = do
                 (\t -> Lib.epochToUTCTime (JS.last_modified t) > board_last_modified)
                 catalog_threads
 
+        let settings = mkJsonSettings csmr_settings $ QE.site board_elem
+
         liftIO $ print changed_threads
+
+        Lib2.saveNewThreads settings (QE.board board_elem) changed_threads
+
 
     print thread_results
 
@@ -89,7 +100,7 @@ mainLoop csmr_settings pq = do
 
                     return (board_elem, stdGen_)
 
-            _ <- forkFinally (threadMain board_elem) $ \threadResult -> do
+            _ <- forkFinally (threadMain csmr_settings board_elem) $ \threadResult -> do
                 case threadResult of
                     Left e -> print e
                     _ -> return ()
