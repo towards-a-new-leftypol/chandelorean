@@ -40,8 +40,8 @@ data Post = Post
 
 instance FromJSON Post
 
-data PostWrapper = PostWrapper
-    { posts :: [Post]
+newtype PostWrapper = PostWrapper
+    { posts :: [ Post ]
     } deriving (Show, Generic)
 
 instance FromJSON PostWrapper

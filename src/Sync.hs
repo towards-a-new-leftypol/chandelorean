@@ -47,12 +47,12 @@ mkJsonSettings cs site = (consumerSettingsToPartialJSONSettings cs)
     }
 
 
-threadMain :: S.ConsumerJSONSettings -> QE.BoardQueueElem -> IO ()
+threadMain :: S.ConsumerJSONSettings -> QE.BoardQueueElem -> IO QE.BoardQueueElem
 threadMain csmr_settings board_elem = do
     putStrLn $ Board.pathpart $ QE.board board_elem
 
     thread_results <- runExceptT $ do
-        catalog_results <- Lib2.getCatalogJSON (QE.site board_elem) (QE.board board_elem)
+        catalog_results <- Lib2.httpGetCatalogJSON (QE.site board_elem) (QE.board board_elem)
 
         let catalog_threads = concatMap (fromMaybe [] . JS.threads) catalog_results
 
@@ -68,8 +68,8 @@ threadMain csmr_settings board_elem = do
 
         Lib2.saveNewThreads settings (QE.board board_elem) changed_threads
 
-
     print thread_results
+    return board_elem
 
 
 mainLoop :: S.ConsumerJSONSettings -> PQ.Queue QE.BoardQueueElem -> IO ()
@@ -101,15 +101,15 @@ mainLoop csmr_settings pq = do
                     return (board_elem, stdGen_)
 
             _ <- forkFinally (threadMain csmr_settings board_elem) $ \threadResult -> do
-                case threadResult of
-                    Left e -> print e
-                    _ -> return ()
+                board_elem_ <- case threadResult of
+                    Left e -> print e >> return board_elem
+                    Right a -> return a
 
                 -- the board_elem we took will have been modified
                 -- inside threadMain so, threadMain should probably
                 -- handle updating the pqvar by itself.
                 -- because board_elem here will be a new board_elem'
-                atomically $ modifyTVar' pqvar (PQ.put board_elem)
+                atomically $ modifyTVar' pqvar (PQ.put board_elem_)
 
                 signalQSem sem
 
