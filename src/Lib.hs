@@ -54,7 +54,7 @@ import Data.Aeson (FromJSON)
 
 import JSONParsing
 import qualified JSONCommonTypes as JS
-import qualified JSONPost   as JSONPosts
+import qualified JSONPost
 import qualified Network.DataClient as Client
 import qualified SitesType  as Sites
 import qualified BoardsType as Boards
@@ -214,7 +214,7 @@ readPosts
     -> Sites.Site
     -> Boards.Board
     -> Threads.Thread
-    -> IO (Threads.Thread, [ JSONPosts.Post ])
+    -> IO (Threads.Thread, [ JSONPost.Post ])
 readPosts FileGetters {..} site board thread = do
     result <- getJSONPosts site relative_path
 
@@ -223,48 +223,48 @@ readPosts FileGetters {..} site board thread = do
             putStrLn $ "Failed to parse the JSON file " ++ relative_path ++ " error: " ++ err
             putStrLn $ "Site: " ++ show site
             return (thread, [])
-        Right posts_wrapper -> return (thread, JSONPosts.posts posts_wrapper)
+        Right posts_wrapper -> return (thread, JSONPost.posts posts_wrapper)
 
     where
         relative_path :: FilePath
         relative_path = Boards.pathpart board </> "res" </> (show (Threads.board_thread_id thread) ++ ".json")
 
 
-apiPostToPostKey :: Threads.Thread -> JSONPosts.Post -> Client.PostId
+apiPostToPostKey :: Threads.Thread -> JSONPost.Post -> Client.PostId
 apiPostToPostKey thread post =
     Client.PostId
         { Client.thread_id = (Threads.thread_id thread)
-        , Client.board_post_id = (JSONPosts.no post)
+        , Client.board_post_id = (JSONPost.no post)
         }
 
 
 -- Convert Post to DbPost
-apiPostToArchivePost :: Int -> Threads.Thread -> JSONPosts.Post -> Posts.Post
+apiPostToArchivePost :: Int -> Threads.Thread -> JSONPost.Post -> Posts.Post
 apiPostToArchivePost local_idx thread post =
     Posts.Post
     { Posts.post_id         = Nothing
-    , Posts.board_post_id   = JSONPosts.no post
-    , Posts.creation_time   = posixSecondsToUTCTime (realToFrac $ JSONPosts.time post)
-    , Posts.body            = JSONPosts.com post
-    , Posts.name            = JSONPosts.name post
-    , Posts.subject         = JSONPosts.sub post
-    , Posts.email           = JSONPosts.email post
+    , Posts.board_post_id   = JSONPost.no post
+    , Posts.creation_time   = posixSecondsToUTCTime (realToFrac $ JSONPost.time post)
+    , Posts.body            = JSONPost.com post
+    , Posts.name            = JSONPost.name post
+    , Posts.subject         = JSONPost.sub post
+    , Posts.email           = JSONPost.email post
     , Posts.thread_id       = Threads.thread_id thread
-    , Posts.embed           = JSONPosts.embed post
+    , Posts.embed           = JSONPost.embed post
     , Posts.local_idx       = local_idx
     }
 
 
 addPostsToTuples
-    :: [(Sites.Site, Boards.Board, Threads.Thread, JSONPosts.Post)]
+    :: [(Sites.Site, Boards.Board, Threads.Thread, JSONPost.Post)]
     -> [ Posts.Post ]
-    -> [(Sites.Site, Boards.Board, Threads.Thread, JSONPosts.Post, Posts.Post)]
+    -> [(Sites.Site, Boards.Board, Threads.Thread, JSONPost.Post, Posts.Post)]
 addPostsToTuples tuples posts = map f posts
     where
-        post_map :: Map.Map (Int64, Int64) (Sites.Site, Boards.Board, Threads.Thread, JSONPosts.Post)
-        post_map = Map.fromList (map (\(a, b, c, d) -> ((Threads.thread_id c, JSONPosts.no d), (a, b, c, d))) tuples)
+        post_map :: Map.Map (Int64, Int64) (Sites.Site, Boards.Board, Threads.Thread, JSONPost.Post)
+        post_map = Map.fromList (map (\(a, b, c, d) -> ((Threads.thread_id c, JSONPost.no d), (a, b, c, d))) tuples)
 
-        f :: Posts.Post -> (Sites.Site, Boards.Board, Threads.Thread, JSONPosts.Post, Posts.Post)
+        f :: Posts.Post -> (Sites.Site, Boards.Board, Threads.Thread, JSONPost.Post, Posts.Post)
         f new_post =
             (\(a, b, c, d) -> (a, b, c, d, new_post))
             (post_map Map.! (Posts.thread_id new_post, Posts.board_post_id new_post))
@@ -351,7 +351,7 @@ type Details = (Sites.Site, Boards.Board, Threads.Thread, Posts.Post, At.Paths, 
 processFiles
     :: J.JSONSettings
     -> FileGetters
-    -> [(Sites.Site, Boards.Board, Threads.Thread, JSONPosts.Post, Posts.Post)]
+    -> [(Sites.Site, Boards.Board, Threads.Thread, JSONPost.Post, Posts.Post)]
     -> IO ()
 processFiles settings fgs tuples = do -- perfect just means that our posts have ids, they're already inserted into the db
     let ps = map (\(_, _, _, _, x) -> x) tuples
@@ -463,13 +463,13 @@ processFiles settings fgs tuples = do -- perfect just means that our posts have 
                 , At.phash = phash
                 }
 
-        parseLegacyPaths :: Boards.Board -> JSONPosts.Post -> Maybe (At.Paths, At.Attachment)
+        parseLegacyPaths :: Boards.Board -> JSONPost.Post -> Maybe (At.Paths, At.Attachment)
         parseLegacyPaths board post = do
-            tim <- JSONPosts.tim post
-            ext <- JSONPosts.ext post
-            filename <- JSONPosts.filename post
-            size <- JSONPosts.fsize post
-            spoiler <- JSONPosts.fsize post
+            tim <- JSONPost.tim post
+            ext <- JSONPost.ext post
+            filename <- JSONPost.filename post
+            size <- JSONPost.fsize post
+            spoiler <- JSONPost.fsize post
 
             let
                 board_pathpart = T.pack $ Boards.pathpart board
@@ -508,10 +508,10 @@ processFiles settings fgs tuples = do -- perfect just means that our posts have 
         withPathPrefix = (addPathPrefix fgs) . unpack
 
         parseAttachments
-            :: (Sites.Site, Boards.Board, Threads.Thread, JSONPosts.Post, Posts.Post)
+            :: (Sites.Site, Boards.Board, Threads.Thread, JSONPost.Post, Posts.Post)
             -> [ Details ]
         parseAttachments (site, board, thread, p, q) = filter notDeleted $
-            case JSONPosts.files p of
+            case JSONPost.files p of
                 Just files -> map
                     (\(i, x) ->
                         ( site
@@ -527,7 +527,7 @@ processFiles settings fgs tuples = do -- perfect just means that our posts have 
                         Nothing -> []
                         Just (paths, a) ->
                             let
-                                dim = (JSONPosts.w p) >>= \w -> ((JSONPosts.h p) >>= \h -> Just $ At.Dimension w h)
+                                dim = (JSONPost.w p) >>= \w -> ((JSONPost.h p) >>= \h -> Just $ At.Dimension w h)
                             in
                                 [( site
                                 , board
@@ -555,7 +555,7 @@ processFiles settings fgs tuples = do -- perfect just means that our posts have 
 
 createNewPosts
     :: J.JSONSettings
-    -> [ (Threads.Thread, JSONPosts.Post, Client.PostId) ]
+    -> [ (Threads.Thread, JSONPost.Post, Client.PostId) ]
     -> IO [ Posts.Post ]
 createNewPosts settings tuples = do
     existing_post_results <- Client.getPosts settings $ map (\(_, _, c) -> c) tuples
@@ -566,7 +566,7 @@ createNewPosts settings tuples = do
 
     let existing_set :: Set (Int64, Int64) = Set.fromList (map (\x -> (Posts.thread_id x, Posts.board_post_id x)) existing_posts)
 
-    let to_insert_list :: [ (Threads.Thread, JSONPosts.Post, Client.PostId) ] =
+    let to_insert_list :: [ (Threads.Thread, JSONPost.Post, Client.PostId) ] =
             sortBy (comparing $ \(_, _, p) -> Client.board_post_id p) $
                 newPosts tuples existing_set
 
@@ -595,12 +595,12 @@ createNewPosts settings tuples = do
         thread_ids :: [ Int64 ]
         thread_ids = Set.elems $ Set.fromList $ map (\(t, _, _) -> Threads.thread_id t) tuples
 
-        newPosts :: [(Threads.Thread, JSONPosts.Post, Client.PostId)] -> Set (Int64, Int64) -> [(Threads.Thread, JSONPosts.Post, Client.PostId)]
+        newPosts :: [(Threads.Thread, JSONPost.Post, Client.PostId)] -> Set (Int64, Int64) -> [(Threads.Thread, JSONPost.Post, Client.PostId)]
         newPosts ts existing_set = filter (\(_, _, c) -> Set.notMember (Client.thread_id c, Client.board_post_id c) existing_set) ts
 
         foldFn
             :: ([Posts.Post], Map.Map Int64 Int)
-            -> (Threads.Thread, JSONPosts.Post, Client.PostId)
+            -> (Threads.Thread, JSONPost.Post, Client.PostId)
             -> ([Posts.Post], Map.Map Int64 Int)
         foldFn (posts, idx_map) (t, p, c) =
             case Map.lookup thread_id idx_map of
@@ -616,7 +616,7 @@ createNewPosts settings tuples = do
 
 data FileGetters = FileGetters
     { getJSONCatalog :: Sites.Site -> String -> IO (Either String [ Catalog ])
-    , getJSONPosts :: Sites.Site -> String -> IO (Either String JSONPosts.PostWrapper)
+    , getJSONPosts :: Sites.Site -> String -> IO (Either String JSONPost.PostWrapper)
     , addPathPrefix :: String -> String
     , attachmentPaths :: At.Paths -> IO (Maybe At.Paths)
     , copyOrMove :: String -> (String, String) -> (Maybe String, String) -> IO ()
@@ -674,9 +674,9 @@ processBoard settings fgs@FileGetters {..} site board = do
 
             all_threads_for_board :: [ Threads.Thread ] <- ensureThreads settings board threads_on_board
 
-            all_posts_on_board :: [(Threads.Thread, [ JSONPosts.Post ])] <- mapM (readPosts fgs site board) all_threads_for_board
+            all_posts_on_board :: [(Threads.Thread, [ JSONPost.Post ])] <- mapM (readPosts fgs site board) all_threads_for_board
 
-            let tuples :: [(Sites.Site, Boards.Board, Threads.Thread, JSONPosts.Post)] = concatMap
+            let tuples :: [(Sites.Site, Boards.Board, Threads.Thread, JSONPost.Post)] = concatMap
                     (\(t, posts) -> map (\p -> (site, board, t, p)) posts)
                     all_posts_on_board
 

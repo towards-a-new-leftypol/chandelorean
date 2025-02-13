@@ -23,10 +23,12 @@ import qualified Lib
 import qualified Network.GetLatestPostsPerBoardResponse as GLPPBR
 import qualified SitesType as Site
 import qualified BoardsType as Board
+import qualified ThreadType as Thread
 import qualified BoardQueueElem as QE
 import qualified PriorityQueue as PQ
 import qualified Lib2
 import qualified JSONParsing as JS
+import qualified JSONPost
 
 consumerSettingsToPartialJSONSettings :: S.ConsumerJSONSettings -> JS.JSONSettings
 consumerSettingsToPartialJSONSettings S.ConsumerJSONSettings {..} =
@@ -69,7 +71,9 @@ threadMain csmr_settings board_elem = do
 
         threads <- Lib2.saveNewThreads settings (QE.board board_elem) changed_threads
 
-        mapM_ (Lib2.httpGetPostsJSON (QE.site board_elem) (QE.board board_elem)) threads
+        thread_posts :: [ (Thread.Thread, [ JSONPost.Post ]) ] <- mapM (Lib2.httpGetPostsJSON (QE.site board_elem) (QE.board board_elem)) threads
+
+        return ()
 
 
     print thread_results

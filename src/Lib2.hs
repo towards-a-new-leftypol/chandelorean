@@ -15,7 +15,7 @@ import qualified SitesType  as Sites
 import qualified BoardsType as Boards
 import Common.Network.HttpClient (HttpError)
 import qualified JSONParsing as JSON
-import qualified JSONPost   as JSONPosts
+import qualified JSONPost
 import qualified ThreadType as Threads
 import Common.Server.JSONSettings (JSONSettings)
 import qualified Lib
@@ -45,10 +45,10 @@ httpGetPostsJSON
   :: Sites.Site
   -> Boards.Board
   -> Threads.Thread
-  -> ExceptT ProgramException IO (Threads.Thread, [ JSONPosts.Post ])
+  -> ExceptT ProgramException IO (Threads.Thread, [ JSONPost.Post ])
 httpGetPostsJSON site board thread =
     liftHttpIO $
-        fmap ((thread,) . JSONPosts.posts) <$> httpSiteGetRequest site path
+        fmap ((thread,) . JSONPost.posts) <$> httpSiteGetRequest site path
 
     where
         path = Boards.pathpart board
