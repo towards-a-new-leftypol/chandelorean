@@ -51,6 +51,7 @@ threadMain :: S.ConsumerJSONSettings -> QE.BoardQueueElem -> IO QE.BoardQueueEle
 threadMain csmr_settings board_elem = do
     putStrLn $ Board.pathpart $ QE.board board_elem
 
+    -- this is essentially the same as Lib.processBoard
     thread_results <- runExceptT $ do
         catalog_results <- Lib2.httpGetCatalogJSON (QE.site board_elem) (QE.board board_elem)
 
@@ -66,7 +67,10 @@ threadMain csmr_settings board_elem = do
 
         liftIO $ print changed_threads
 
-        Lib2.saveNewThreads settings (QE.board board_elem) changed_threads
+        threads <- Lib2.saveNewThreads settings (QE.board board_elem) changed_threads
+
+        mapM_ (Lib2.httpGetPostsJSON (QE.site board_elem) (QE.board board_elem)) threads
+
 
     print thread_results
     return board_elem
@@ -237,12 +241,12 @@ syncWebsites csmr_settings = do
     --  - ensure that sites in the settings exist in the database! ✓
     --  - ensure that boards per site in the settings exist in the database! ✓
     --  - finish using ExceptT and use sites, latest_posts_per_board to populate
-    --    our PriorityQueue
+    --    our PriorityQueue ✓
     --  - write event loop that
     --       - get pq from stm shared value ✓
     --       - uses the pq (there was something about the timestamps in the pq having to be reversed btw) ✓
-    --       - ensures threads
+    --       - ensures threads ✓
     --       - has a value that should be added to the pq
-    --       - uses stm to update pq shared value
+    --       - uses stm to update pq shared value ✓
     --
     --

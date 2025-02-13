@@ -288,7 +288,7 @@ SELECT DISTINCT ON (b.board_id)
   FROM boards b
   JOIN threads t ON t.board_id = b.board_id
   JOIN posts   p ON p.thread_id = t.thread_id
- ORDER BY b.board_id, p.creation_time DESC;
+  WHERE p.is_missing_attachments = false;
 
 
 CREATE OR REPLACE FUNCTION get_latest_posts_per_board()
@@ -314,7 +314,10 @@ RETURNS TABLE (
       FROM boards b
       JOIN threads t ON t.board_id = b.board_id
       JOIN posts   p ON p.thread_id = t.thread_id
-     ORDER BY b.board_id, p.creation_time DESC;
+      WHERE p.is_missing_attachments = false;
 $$ LANGUAGE sql STABLE;
 
 SELECT * FROM get_latest_posts_per_board();
+SELECT * FROM boards JOIN sites ON boards.site_id = sites.site_id WHERE sites.name = 'leftychan';
+
+ALTER TABLE posts ADD COLUMN is_missing_attachments boolean NOT NULL DEFAULT false;

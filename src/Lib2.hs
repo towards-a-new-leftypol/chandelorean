@@ -45,13 +45,15 @@ httpGetPostsJSON
   :: Sites.Site
   -> Boards.Board
   -> Threads.Thread
-  -> ExceptT ProgramException IO [ JSONPosts.Post ]
+  -> ExceptT ProgramException IO (Threads.Thread, [ JSONPosts.Post ])
 httpGetPostsJSON site board thread =
     liftHttpIO $
-        fmap JSONPosts.posts <$> httpSiteGetRequest site path
+        fmap ((thread,) . JSONPosts.posts) <$> httpSiteGetRequest site path
 
     where
-        path = Boards.pathpart board </> "res" </> (show (Threads.board_thread_id thread) ++ ".json")
+        path = Boards.pathpart board
+            </> "res"
+            </> (show (Threads.board_thread_id thread) ++ ".json")
 
 
 saveNewThreads
@@ -60,7 +62,7 @@ saveNewThreads
     -> [ JSON.Thread ]
     -> ExceptT ProgramException IO [ Threads.Thread ]
 saveNewThreads settings board web_threads = do
-    db_threads <- liftHttpIO $
+    existing_threads <- liftHttpIO $
         Client.getThreads
             settings
             (Boards.board_id board)
@@ -69,7 +71,7 @@ saveNewThreads settings board web_threads = do
     let
         archived_board_thread_ids :: Set.Set Int
         archived_board_thread_ids =
-            Set.fromList $ map Threads.board_thread_id db_threads
+            Set.fromList $ map Threads.board_thread_id existing_threads
 
         threads_to_create :: [ JSON.Thread ]
         threads_to_create =
@@ -84,4 +86,4 @@ saveNewThreads settings board web_threads = do
         settings
         (map (Lib.apiThreadToArchiveThread board_id) threads_to_create)
 
-    return $ db_threads ++ new_threads
+    return $ existing_threads ++ new_threads

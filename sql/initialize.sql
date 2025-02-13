@@ -77,6 +77,7 @@ CREATE TABLE IF NOT EXISTS posts
     , thread_id bigint NOT NULL
     , embed text
     , local_idx int NOT NULL
+    , is_missing_attachments boolean NOT NULL DEFAULT false
     , CONSTRAINT unique_thread_board_id_constraint UNIQUE (thread_id, board_post_id)
     , CONSTRAINT thread_fk FOREIGN KEY (thread_id) REFERENCES threads (thread_id) ON DELETE CASCADE
     , CONSTRAINT unique_thread_local_idx UNIQUE (thread_id, local_idx)
@@ -424,7 +425,7 @@ RETURNS TABLE (
       FROM boards b
       JOIN threads t ON t.board_id = b.board_id
       JOIN posts   p ON p.thread_id = t.thread_id
-     ORDER BY b.board_id, p.creation_time DESC;
+      WHERE p.is_missing_attachments = false;
 $$ LANGUAGE sql STABLE;
 
 
