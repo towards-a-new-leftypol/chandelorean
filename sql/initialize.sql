@@ -402,6 +402,7 @@ RETURNS SETOF catalog_grid_result AS $$
 $$ LANGUAGE sql STABLE;
 
 
+-- for Sync
 CREATE OR REPLACE FUNCTION get_latest_posts_per_board()
 RETURNS TABLE (
     board_id int,
@@ -423,9 +424,9 @@ RETURNS TABLE (
            t.thread_id,
            t.board_thread_id
       FROM boards b
-      JOIN threads t ON t.board_id = b.board_id
-      JOIN posts   p ON p.thread_id = t.thread_id
-      WHERE p.is_missing_attachments = false;
+      LEFT JOIN threads t ON t.board_id = b.board_id
+      LEFT JOIN posts   p ON p.thread_id = t.thread_id AND p.is_missing_attachments = false
+      ORDER BY b.board_id, p.creation_time DESC;
 $$ LANGUAGE sql STABLE;
 
 
