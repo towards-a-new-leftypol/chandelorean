@@ -14,7 +14,7 @@ data GetLatestPostsPerBoardResponse = GetLatestPostsPerBoardResponse
     , pathpart        :: String
     -- , post_id         :: Maybe Int64
     -- , board_post_id   :: Int64
-    , creation_time   :: UTCTime
+    , creation_time   :: Maybe UTCTime
     -- , thread_id       :: Int64
     -- , board_thread_id :: Integer
     } deriving (Show, Generic, FromJSON)

@@ -174,7 +174,13 @@ syncWebsites csmr_settings = do
 
     let board_id_to_last_modified = Map.fromList $
             map
-                (\b -> (GLPPBR.board_id b, GLPPBR.creation_time b))
+                ( \b ->
+                    ( GLPPBR.board_id b
+                    -- set t = 0 if there are no posts on the board yet
+                    -- this way it will check all of the threads
+                    , fromMaybe (Lib.epochToUTCTime 0) $ GLPPBR.creation_time b
+                    )
+                )
                 latest_posts_per_board
 
     let site_name_to_site :: Map.Map String Site.Site =
