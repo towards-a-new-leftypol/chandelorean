@@ -8,7 +8,11 @@ module Lib2
 import Control.Monad.Trans.Except (ExceptT (..))
 import System.FilePath ((</>))
 import qualified Data.Set as Set
+import qualified Data.Map as Map
 import Data.Aeson (FromJSON)
+import Data.Int (Int64)
+import Data.List (sortBy)
+import Data.Ord (comparing)
 
 import qualified Network.DataClient as Client
 import qualified SitesType  as Sites
@@ -16,7 +20,8 @@ import qualified BoardsType as Boards
 import Common.Network.HttpClient (HttpError)
 import qualified JSONParsing as JSON
 import qualified JSONPost
-import qualified ThreadType as Threads
+import qualified ThreadType as Thread
+import qualified Common.PostsType as Posts
 import Common.Server.JSONSettings (JSONSettings)
 import qualified Lib
 
@@ -25,7 +30,10 @@ data ProgramException = HttpException HttpError
   deriving Show
 
 
-liftHttpIO :: IO (Either HttpError a) -> ExceptT ProgramException IO a
+type IOe a = ExceptT ProgramException IO a
+
+
+liftHttpIO :: IO (Either HttpError a) -> IOe a
 liftHttpIO = ExceptT . fmap (either (Left . HttpException) Right)
 
 
@@ -35,7 +43,7 @@ httpSiteGetRequest site path = Client.getJSON $ Sites.url site </> path
 httpGetCatalogJSON
   :: Sites.Site
   -> Boards.Board
-  -> ExceptT ProgramException IO [ JSON.Catalog ]
+  -> IOe [ JSON.Catalog ]
 httpGetCatalogJSON site board = liftHttpIO $ httpSiteGetRequest site path
   where
     path = Boards.pathpart board </> "catalog.json"
@@ -44,8 +52,8 @@ httpGetCatalogJSON site board = liftHttpIO $ httpSiteGetRequest site path
 httpGetPostsJSON
   :: Sites.Site
   -> Boards.Board
-  -> Threads.Thread
-  -> ExceptT ProgramException IO (Threads.Thread, [ JSONPost.Post ])
+  -> Thread.Thread
+  -> IOe (Thread.Thread, [ JSONPost.Post ])
 httpGetPostsJSON site board thread =
     liftHttpIO $
         fmap ((thread,) . JSONPost.posts) <$> httpSiteGetRequest site path
@@ -53,14 +61,14 @@ httpGetPostsJSON site board thread =
     where
         path = Boards.pathpart board
             </> "res"
-            </> (show (Threads.board_thread_id thread) ++ ".json")
+            </> (show (Thread.board_thread_id thread) ++ ".json")
 
 
 saveNewThreads
     :: JSONSettings
     -> Boards.Board
     -> [ JSON.Thread ]
-    -> ExceptT ProgramException IO [ Threads.Thread ]
+    -> IOe [ Thread.Thread ]
 saveNewThreads settings board web_threads = do
     existing_threads <- liftHttpIO $
         Client.getThreads
@@ -71,7 +79,7 @@ saveNewThreads settings board web_threads = do
     let
         archived_board_thread_ids :: Set.Set Int
         archived_board_thread_ids =
-            Set.fromList $ map Threads.board_thread_id existing_threads
+            Set.fromList $ map Thread.board_thread_id existing_threads
 
         threads_to_create :: [ JSON.Thread ]
         threads_to_create =
@@ -87,3 +95,41 @@ saveNewThreads settings board web_threads = do
         (map (Lib.apiThreadToArchiveThread board_id) threads_to_create)
 
     return $ existing_threads ++ new_threads
+
+
+saveNewPosts
+    :: JSONSettings
+    -> [ (Thread.Thread, [ JSONPost.Post ]) ]
+    -> IOe [ Posts.Post ]
+saveNewPosts settings thread_posts = do
+    existing_posts <- liftHttpIO $ Client.getPosts settings post_ids
+
+    thread_max_local_idx <- liftHttpIO $ Client.getThreadMaxLocalIdx settings thread_ids
+
+    let existing_set :: Set.Set (Int64, Int64) =
+            Set.fromList
+                (map (\x -> (Posts.thread_id x, Posts.board_post_id x))
+                existing_posts)
+
+    let tuples_to_insert :: [ (Thread.Thread, JSONPost.Post, Client.PostId) ] =
+            sortBy (comparing $ \(_, _, p) -> Client.board_post_id p) $
+                newPosts post_tuples existing_set
+
+    let local_idx :: Map.Map Int64 Int = Map.fromList thread_max_local_idx
+
+    return undefined
+
+    where
+        flat_posts = concatMap (\(i, j) -> map (i,) j) thread_posts
+
+        post_tuples = map
+            (\(i, j) -> (i, j, Client.PostId (Thread.thread_id i) (JSONPost.no j)))
+            flat_posts
+
+        post_ids = map (\(_, _, x) -> x) post_tuples
+
+        thread_ids :: [ Int64 ]
+        thread_ids = map (Thread.thread_id . fst) thread_posts
+
+        newPosts :: [(Thread.Thread, JSONPost.Post, Client.PostId)] -> Set.Set (Int64, Int64) -> [(Thread.Thread, JSONPost.Post, Client.PostId)]
+        newPosts xs existing_set = filter (\(_, _, c) -> Set.notMember (Client.thread_id c, Client.board_post_id c) existing_set) xs

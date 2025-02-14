@@ -553,6 +553,21 @@ processFiles settings fgs tuples = do -- perfect just means that our posts have 
             in Map.insert pid (x : l) accMap
 
 
+localIndexFoldf
+    :: ([Posts.Post], Map.Map Int64 Int)
+    -> (Threads.Thread, JSONPost.Post, Client.PostId)
+    -> ([Posts.Post], Map.Map Int64 Int)
+localIndexFoldf (posts, idx_map) (t, p, c) =
+    case Map.lookup thread_id idx_map of
+        Nothing -> (post 1       : posts, Map.insert thread_id 1       idx_map)
+        Just i  -> (post (i + 1) : posts, Map.insert thread_id (i + 1) idx_map)
+
+    where
+        post :: Int -> Posts.Post
+        post i = apiPostToArchivePost i t p
+
+        thread_id = Client.thread_id c
+
 createNewPosts
     :: J.JSONSettings
     -> [ (Threads.Thread, JSONPost.Post, Client.PostId) ]
@@ -573,7 +588,7 @@ createNewPosts settings tuples = do
     -- Map of thread_id to the largest local_idx value (which would be the number of the last post in the thread)
     let local_idx :: Map.Map Int64 Int = Map.fromList thread_max_local_idxs
 
-    let insert_posts :: [ Posts.Post ] = fst $ foldl' foldFn ([], local_idx) to_insert_list
+    let insert_posts :: [ Posts.Post ] = fst $ foldl' localIndexFoldf ([], local_idx) to_insert_list
 
     -- posts to insert are the posts that are not in existing_posts
     -- so we create a Set (thread_id, board_post_id) ✓
@@ -597,21 +612,6 @@ createNewPosts settings tuples = do
 
         newPosts :: [(Threads.Thread, JSONPost.Post, Client.PostId)] -> Set (Int64, Int64) -> [(Threads.Thread, JSONPost.Post, Client.PostId)]
         newPosts ts existing_set = filter (\(_, _, c) -> Set.notMember (Client.thread_id c, Client.board_post_id c) existing_set) ts
-
-        foldFn
-            :: ([Posts.Post], Map.Map Int64 Int)
-            -> (Threads.Thread, JSONPost.Post, Client.PostId)
-            -> ([Posts.Post], Map.Map Int64 Int)
-        foldFn (posts, idx_map) (t, p, c) =
-            case Map.lookup thread_id idx_map of
-                Nothing -> (post 1       : posts, Map.insert thread_id 1       idx_map)
-                Just i  -> (post (i + 1) : posts, Map.insert thread_id (i + 1) idx_map)
-
-            where
-                post :: Int -> Posts.Post
-                post i = apiPostToArchivePost i t p
-
-                thread_id = Client.thread_id c
 
 
 data FileGetters = FileGetters

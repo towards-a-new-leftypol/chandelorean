@@ -54,6 +54,9 @@ threadMain csmr_settings board_elem = do
     putStrLn $ Board.pathpart $ QE.board board_elem
 
     -- this is essentially the same as Lib.processBoard
+    -- but Lib2 uses ExceptT instead of IO, which saves us from writing all
+    -- of the error handling every time we make an http call. That can be done
+    -- once at the end.
     thread_results <- runExceptT $ do
         let site = QE.site board_elem
         let board = QE.board board_elem
