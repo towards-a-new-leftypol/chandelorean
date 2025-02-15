@@ -21,6 +21,7 @@ module Lib
     , SettingsCLI (..)
     , epochToUTCTime
     , apiThreadToArchiveThread
+    , localIndexFoldf
     ) where
 
 import System.Exit
@@ -238,20 +239,27 @@ apiPostToPostKey thread post =
         }
 
 
+postHasAttachments :: JSONPost.Post -> Bool
+postHasAttachments JSONPost.Post { JSONPost.files = Just _ } = True
+postHasAttachments JSONPost.Post { JSONPost.filename = Just _ } = True
+postHasAttachments _ = False
+
+
 -- Convert Post to DbPost
 apiPostToArchivePost :: Int -> Threads.Thread -> JSONPost.Post -> Posts.Post
 apiPostToArchivePost local_idx thread post =
     Posts.Post
-    { Posts.post_id         = Nothing
-    , Posts.board_post_id   = JSONPost.no post
-    , Posts.creation_time   = posixSecondsToUTCTime (realToFrac $ JSONPost.time post)
-    , Posts.body            = JSONPost.com post
-    , Posts.name            = JSONPost.name post
-    , Posts.subject         = JSONPost.sub post
-    , Posts.email           = JSONPost.email post
-    , Posts.thread_id       = Threads.thread_id thread
-    , Posts.embed           = JSONPost.embed post
-    , Posts.local_idx       = local_idx
+    { post_id         = Nothing
+    , board_post_id   = JSONPost.no post
+    , creation_time   = posixSecondsToUTCTime (realToFrac $ JSONPost.time post)
+    , body            = JSONPost.com post
+    , name            = JSONPost.name post
+    , subject         = JSONPost.sub post
+    , email           = JSONPost.email post
+    , thread_id       = Threads.thread_id thread
+    , embed           = JSONPost.embed post
+    , local_idx       = local_idx
+    , is_missing_attachments = postHasAttachments post
     }
 
 

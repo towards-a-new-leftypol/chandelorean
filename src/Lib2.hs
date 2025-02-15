@@ -3,6 +3,7 @@ module Lib2
   , ProgramException (..)
   , saveNewThreads
   , httpGetPostsJSON
+  , saveNewPosts
   ) where
 
 import Control.Monad.Trans.Except (ExceptT (..))
@@ -11,7 +12,7 @@ import qualified Data.Set as Set
 import qualified Data.Map as Map
 import Data.Aeson (FromJSON)
 import Data.Int (Int64)
-import Data.List (sortBy)
+import Data.List (sortBy, foldl')
 import Data.Ord (comparing)
 
 import qualified Network.DataClient as Client
@@ -117,7 +118,11 @@ saveNewPosts settings thread_posts = do
 
     let local_idx :: Map.Map Int64 Int = Map.fromList thread_max_local_idx
 
-    return undefined
+    let posts_to_insert :: [ Posts.Post ] = fst $ foldl' Lib.localIndexFoldf ([], local_idx) tuples_to_insert
+
+    new_posts <- liftHttpIO $ Client.postPosts settings posts_to_insert
+
+    return $ existing_posts ++ new_posts
 
     where
         flat_posts = concatMap (\(i, j) -> map (i,) j) thread_posts
