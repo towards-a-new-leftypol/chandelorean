@@ -14,6 +14,7 @@ import Data.Aeson (FromJSON)
 import Data.Int (Int64)
 import Data.List (sortBy, foldl')
 import Data.Ord (comparing)
+import Data.Bifunctor (first)
 
 import qualified Network.DataClient as Client
 import qualified SitesType  as Sites
@@ -35,7 +36,7 @@ type IOe a = ExceptT ProgramException IO a
 
 
 liftHttpIO :: IO (Either HttpError a) -> IOe a
-liftHttpIO = ExceptT . fmap (either (Left . HttpException) Right)
+liftHttpIO = ExceptT . fmap (first HttpException)
 
 
 httpSiteGetRequest :: (FromJSON a) => Sites.Site -> String -> IO (Either HttpError a)
@@ -138,3 +139,10 @@ saveNewPosts settings thread_posts = do
 
         newPosts :: [(Thread.Thread, JSONPost.Post, Client.PostId)] -> Set.Set (Int64, Int64) -> [(Thread.Thread, JSONPost.Post, Client.PostId)]
         newPosts xs existing_set = filter (\(_, _, c) -> Set.notMember (Client.thread_id c, Client.board_post_id c) existing_set) xs
+
+
+-- saveNewAttachments
+--     :: JSONSettings
+--     -> [(Sites.Site, Boards.Board, Thread.Thread, JSONPost.Post, Posts.Post)]
+--     -> IOe ()
+-- saveNewAttachments = _

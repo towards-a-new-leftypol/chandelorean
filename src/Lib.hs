@@ -22,6 +22,7 @@ module Lib
     , epochToUTCTime
     , apiThreadToArchiveThread
     , localIndexFoldf
+    , addPostsToTuples
     ) where
 
 import System.Exit
@@ -259,7 +260,7 @@ apiPostToArchivePost local_idx thread post =
     , thread_id       = Threads.thread_id thread
     , embed           = JSONPost.embed post
     , local_idx       = local_idx
-    , is_missing_attachments = postHasAttachments post
+    , is_missing_attachments = postHasAttachments post -- initially posts with attachments aren't complete, keep the db state consistent.
     }
 
 
@@ -355,6 +356,84 @@ copyOrMoveFiles settings fgs (site, board, thread, _, path, attachment) = do
 
 type Details = (Sites.Site, Boards.Board, Threads.Thread, Posts.Post, At.Paths, At.Attachment)
 
+parseAttachments
+    :: String
+    -> (Sites.Site, Boards.Board, Threads.Thread, JSONPost.Post, Posts.Post)
+    -> [ Details ]
+parseAttachments path_prefix (site, board, thread, p, q) = filter notDeleted $
+    case JSONPost.files p of
+        Just files -> map
+            (\(i, x) ->
+                ( site
+                , board
+                , thread
+                , q
+                , At.Paths (path_prefix ++ (unpack $ JS.file_path x)) (Just $ path_prefix ++ (unpack $ JS.thumb_path x))
+                , fileToAttachment i q x
+                )
+            ) (zip [1..] files)
+        Nothing ->
+            case parseLegacyPaths board p path_prefix of
+                Nothing -> []
+                Just (paths, a) ->
+                    let
+                        dim = (JSONPost.w p) >>= \w -> ((JSONPost.h p) >>= \h -> Just $ At.Dimension w h)
+                    in
+                        [( site
+                        , board
+                        , thread
+                        , q
+                        , paths
+                        , a
+                            { At.creation_time = Posts.creation_time q
+                            , At.resolution = dim
+                            , At.post_id = fromJust $ Posts.post_id q
+                            }
+                        )]
+
+    where
+        notDeleted :: (a, b, c, d, At.Paths, At.Attachment) -> Bool
+        notDeleted (_, _, _, _, paths, _) = not $ "deleted" `isSuffixOf` (At.file_path paths)
+
+
+
+parseLegacyPaths :: Boards.Board -> JSONPost.Post -> String -> Maybe (At.Paths, At.Attachment)
+parseLegacyPaths board post path_prefix = do
+    tim <- JSONPost.tim post
+    ext <- JSONPost.ext post
+    filename <- JSONPost.filename post
+    size <- JSONPost.fsize post
+    spoiler <- JSONPost.fsize post
+
+    let
+        board_pathpart = T.pack $ Boards.pathpart board
+        file_path = path_prefix </> (T.unpack $ board_pathpart <> "/src/" <> tim <> ext)
+        thumb_extension = "png"
+        thumbnail_path = path_prefix </> (T.unpack $ board_pathpart <> "/thumb/" <> tim <> "." <> thumb_extension)
+
+        p = At.Paths file_path (Just thumbnail_path)
+
+        mime = getMimeType ext
+
+        attachment = At.Attachment
+            { At.mimetype = mime
+            , At.creation_time = undefined
+            , At.sha256_hash = undefined
+            , At.phash = Nothing
+            , At.illegal = False
+            , At.post_id = undefined
+            , At.resolution = undefined
+            , At.file_extension = Just $ T.drop 1 ext
+            , At.thumb_extension = Just thumb_extension
+            , At.original_filename = Just $ filename <> ext
+            , At.file_size_bytes = size
+            , At.board_filename = tim
+            , At.spoiler = spoiler > 0
+            , At.attachment_idx = 1
+            }
+
+    return (p, attachment)
+
 
 processFiles
     :: J.JSONSettings
@@ -378,7 +457,7 @@ processFiles settings fgs tuples = do -- perfect just means that our posts have 
                         existing_attachments
 
             let attachments_on_board :: [ Details ] =
-                    concatMap parseAttachments tuples
+                    concatMap (parseAttachments path_prefix) tuples
             -- attachments_on_board are the only files that can be copied into the archive dir right now
             -- since that's where we have the src filename. except here the Attachment doesn't have a sha hash yet
             -- so we can't build the destination filename.
@@ -471,83 +550,8 @@ processFiles settings fgs tuples = do -- perfect just means that our posts have 
                 , At.phash = phash
                 }
 
-        parseLegacyPaths :: Boards.Board -> JSONPost.Post -> Maybe (At.Paths, At.Attachment)
-        parseLegacyPaths board post = do
-            tim <- JSONPost.tim post
-            ext <- JSONPost.ext post
-            filename <- JSONPost.filename post
-            size <- JSONPost.fsize post
-            spoiler <- JSONPost.fsize post
-
-            let
-                board_pathpart = T.pack $ Boards.pathpart board
-                file_path = (withPathPrefix "") </> (T.unpack $ board_pathpart <> "/src/" <> tim <> ext)
-                thumb_extension = "png"
-                thumbnail_path = (withPathPrefix "") </> (T.unpack $ board_pathpart <> "/thumb/" <> tim <> "." <> thumb_extension)
-
-                p = At.Paths file_path (Just thumbnail_path)
-
-                mime = getMimeType ext
-
-                attachment = At.Attachment
-                    { At.mimetype = mime
-                    , At.creation_time = undefined
-                    , At.sha256_hash = undefined
-                    , At.phash = Nothing
-                    , At.illegal = False
-                    , At.post_id = undefined
-                    , At.resolution = undefined
-                    , At.file_extension = Just $ T.drop 1 ext
-                    , At.thumb_extension = Just $ thumb_extension
-                    , At.original_filename = Just $ filename <> ext
-                    , At.file_size_bytes = size
-                    , At.board_filename = tim
-                    , At.spoiler = spoiler > 0
-                    , At.attachment_idx = 1
-                    }
-
-            return (p, attachment)
-
-
-        notDeleted :: (a, b, c, d, At.Paths, At.Attachment) -> Bool
-        notDeleted (_, _, _, _, p, _) = not $ "deleted" `isSuffixOf` (At.file_path p)
-
-        withPathPrefix :: Text -> FilePath
-        withPathPrefix = (addPathPrefix fgs) . unpack
-
-        parseAttachments
-            :: (Sites.Site, Boards.Board, Threads.Thread, JSONPost.Post, Posts.Post)
-            -> [ Details ]
-        parseAttachments (site, board, thread, p, q) = filter notDeleted $
-            case JSONPost.files p of
-                Just files -> map
-                    (\(i, x) ->
-                        ( site
-                        , board
-                        , thread
-                        , q
-                        , At.Paths (withPathPrefix $ JS.file_path x) (Just $ withPathPrefix $ JS.thumb_path x)
-                        , fileToAttachment i q x
-                        )
-                    ) (zip [1..] files)
-                Nothing ->
-                    case parseLegacyPaths board p of
-                        Nothing -> []
-                        Just (paths, a) ->
-                            let
-                                dim = (JSONPost.w p) >>= \w -> ((JSONPost.h p) >>= \h -> Just $ At.Dimension w h)
-                            in
-                                [( site
-                                , board
-                                , thread
-                                , q
-                                , paths
-                                , a
-                                    { At.creation_time = Posts.creation_time q
-                                    , At.resolution = dim
-                                    , At.post_id = fromJust $ Posts.post_id q
-                                    }
-                                )]
+        path_prefix :: String
+        path_prefix = (addPathPrefix fgs) ""
 
         insertRecord
             :: Ord a
@@ -769,6 +773,7 @@ httpFileGetters settings = FileGetters
       -- it downloads them into a temporary file and gets that path of that.
     , attachmentPaths = \paths -> do
         filepath <- Client.getFile (At.file_path paths)
+
         m_thumbpath <- case At.thumbnail_path paths of
             Nothing -> return Nothing
             Just thumbpath -> Client.getFile thumbpath

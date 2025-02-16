@@ -82,11 +82,15 @@ threadMain csmr_settings board_elem = do
             (Lib2.httpGetPostsJSON site board)
             threads
 
+        posts <- Lib2.saveNewPosts settings web_posts
+
         let web_post_tuples
                 :: [ (Site.Site, Board.Board, Thread.Thread, JSONPost.Post) ]
                 = concatMap
                     (\(t, ps) -> map (\p -> (site, board, t, p)) ps)
                     web_posts
+
+        let post_tuples = Lib.addPostsToTuples web_post_tuples posts
 
         return ()
 
