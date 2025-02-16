@@ -15,6 +15,8 @@ import Data.Int (Int64)
 import Data.List (sortBy, foldl')
 import Data.Ord (comparing)
 import Data.Bifunctor (first)
+import Data.Maybe (fromJust)
+import Data.Text (Text)
 
 import qualified Network.DataClient as Client
 import qualified SitesType  as Sites
@@ -25,6 +27,8 @@ import qualified JSONPost
 import qualified ThreadType as Thread
 import qualified Common.PostsType as Posts
 import Common.Server.JSONSettings (JSONSettings)
+import qualified Common.Server.JSONSettings as JSettgs
+import qualified Common.AttachmentType as At
 import qualified Lib
 
 
@@ -141,8 +145,29 @@ saveNewPosts settings thread_posts = do
         newPosts xs existing_set = filter (\(_, _, c) -> Set.notMember (Client.thread_id c, Client.board_post_id c) existing_set) xs
 
 
--- saveNewAttachments
---     :: JSONSettings
---     -> [(Sites.Site, Boards.Board, Thread.Thread, JSONPost.Post, Posts.Post)]
---     -> IOe ()
--- saveNewAttachments = _
+saveNewAttachments
+    :: JSONSettings
+    -> [(Sites.Site, Boards.Board, Thread.Thread, JSONPost.Post, Posts.Post)]
+    -> IOe ()
+saveNewAttachments settings post_tuples = do
+    db_attachments <- let posts = map (\(_, _, _, _, x) -> x) post_tuples in
+        liftHttpIO $
+            Client.getAttachments
+                settings
+                (map (fromJust . Posts.post_id) posts)
+
+    let existing_attachment_map :: Map.Map (Int64, Text) [ At.Attachment ] =
+            Map.fromListWith
+                (++)
+                [ ((At.post_id a, At.board_filename a), [a])
+                | a <- db_attachments
+                ]
+
+    let attachments_on_board :: [ Lib.Details ] =
+            concatMap
+                (Lib.parseAttachments (JSettgs.site_url settings))
+                post_tuples
+
+    let to_insert = concat $ Map.elems to_insert_map
+
+    return ()

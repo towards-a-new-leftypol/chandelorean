@@ -23,6 +23,9 @@ module Lib
     , apiThreadToArchiveThread
     , localIndexFoldf
     , addPostsToTuples
+    , Details
+    , parseAttachments
+    , insertRecord
     ) where
 
 import System.Exit
@@ -473,7 +476,7 @@ processFiles settings fgs tuples = do -- perfect just means that our posts have 
                         (\k _ -> not $ k `Map.member` map_existing)
                         map_should_exist
 
-            let to_insert = foldr (++) [] $ Map.elems to_insert_map
+            let to_insert = concat $ Map.elems to_insert_map
 
             to_insert_ <- mapM ensureAttachmentExists to_insert
 
@@ -553,16 +556,17 @@ processFiles settings fgs tuples = do -- perfect just means that our posts have 
         path_prefix :: String
         path_prefix = (addPathPrefix fgs) ""
 
-        insertRecord
-            :: Ord a
-            => (b -> a)
-            -> Map.Map a [b]
-            -> b
-            -> Map.Map a [b]
-        insertRecord getKey accMap x =
-            let pid = getKey x
-                l = Map.findWithDefault [] pid accMap
-            in Map.insert pid (x : l) accMap
+
+insertRecord
+    :: Ord a
+    => (b -> a)
+    -> Map.Map a [b]
+    -> b
+    -> Map.Map a [b]
+insertRecord getKey accMap x =
+    let pid = getKey x
+        l = Map.findWithDefault [] pid accMap
+    in Map.insert pid (x : l) accMap
 
 
 localIndexFoldf
