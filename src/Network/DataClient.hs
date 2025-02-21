@@ -229,16 +229,13 @@ getJSON :: (FromJSON a) => String -> IO (Either HttpError a)
 getJSON url = get_ url [] >>= return . eitherDecodeResponse
 
 
-getFile :: String -> IO (Maybe String)
+getFile :: String -> IO (Either HttpError String)
 getFile url = do
     putStrLn $ "getFile " ++ url
     result <- get_ url []
 
     case result of
-        Left (err :: HttpError) -> do
-            putStrLn $ "getFile " ++ url ++ " Error!"
-            print err
-            return Nothing
+        Left (err :: HttpError) -> return $ Left err
         Right lbs -> do
             putStrLn $ "getFile " ++ url ++ " SUCCESS!"
             tmp_root <- getCanonicalTemporaryDirectory
@@ -247,7 +244,7 @@ getFile url = do
             putStrLn "Writing attachment..."
             LBS.hPut tmp_filehandle lbs
             hClose tmp_filehandle
-            return $ Just tmp_filepath
+            return $ Right tmp_filepath
 
 
 getLatestPostsPerBoard :: T.JSONSettings -> IO (Either HttpError [ GLPPBR.GetLatestPostsPerBoardResponse ])

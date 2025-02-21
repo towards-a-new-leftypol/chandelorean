@@ -9,6 +9,7 @@
 {-# HLINT ignore "Use <&>" #-}
 {-# HLINT ignore "Use if" #-}
 {-# HLINT ignore "Move brackets to avoid $" #-}
+{-# HLINT ignore "Eta reduce" #-}
 
 module Lib
     ( toClientSettings
@@ -779,13 +780,20 @@ httpFileGetters settings = FileGetters
         filepath <- Client.getFile (At.file_path paths)
 
         m_thumbpath <- case At.thumbnail_path paths of
-            Nothing -> return Nothing
+            Nothing -> return $ Left undefined
             Just thumbpath -> Client.getFile thumbpath
 
-        return $ filepath >>= \fp ->
-            case m_thumbpath of
-                Nothing -> return (At.Paths fp Nothing)
-                tp -> return (At.Paths fp tp)
+        case filepath of
+            Left err -> do
+                print err
+                return Nothing
+
+            Right p ->
+                case m_thumbpath of
+                    Left _ -> do
+                        return $ Just $ At.Paths p Nothing
+                    Right tp -> return $ Just $ At.Paths p $ Just tp
+
 
     , copyOrMove = \common_dest (src, dest) (m_thumb_src, thumb_dest) -> do
         putStrLn $ "Copy Or Move (Move) src: " ++ src ++ " dest: " ++ dest

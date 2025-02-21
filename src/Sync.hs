@@ -92,6 +92,8 @@ threadMain csmr_settings board_elem = do
 
         let post_tuples = Lib.addPostsToTuples web_post_tuples posts
 
+        Lib2.saveNewAttachments settings post_tuples
+
         return ()
 
 

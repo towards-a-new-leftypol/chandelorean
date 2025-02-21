@@ -4,6 +4,7 @@ module Lib2
   , saveNewThreads
   , httpGetPostsJSON
   , saveNewPosts
+  , saveNewAttachments
   ) where
 
 import Control.Monad.Trans.Except (ExceptT (..))
@@ -15,7 +16,7 @@ import Data.Int (Int64)
 import Data.List (sortBy, foldl')
 import Data.Ord (comparing)
 import Data.Bifunctor (first)
-import Data.Maybe (fromJust)
+import Data.Maybe (fromJust, catMaybes)
 import Data.Text (Text)
 
 import qualified Network.DataClient as Client
@@ -168,6 +169,42 @@ saveNewAttachments settings post_tuples = do
                 (Lib.parseAttachments (JSettgs.site_url settings))
                 post_tuples
 
-    let to_insert = concat $ Map.elems to_insert_map
+    let attachments_on_board_map =
+            Map.fromListWith
+                (++)
+                [ ((At.post_id a, At.board_filename a), [x])
+                | x@(_, _, _, _, _, a) <- attachments_on_board
+                ]
+
+    let to_insert = concat $ Map.elems $ attachments_on_board_map `Map.difference` existing_attachment_map
+
+    attachment_paths_results <- mapM downloadAttachment to_insert
+
+    let attachment_paths = catMaybes attachment_paths_results
 
     return ()
+
+
+-- Downloads attachment and thumbnail to temporary files, and returns their paths.
+downloadAttachment :: Lib.Details -> IOe (Maybe Lib.Details)
+downloadAttachment (a, b, c, d, paths, f) = do
+    result <- ExceptT $ do
+        file_result <- Client.getFile (At.file_path paths)
+
+        case file_result of
+            -- return Right if we get 404, to keep going and just save the Post without this attachment
+            Left (Client.StatusCodeError 404 _) -> return $ Right Nothing
+            Left e -> return $ Left $ HttpException e
+            Right filepath -> do
+                case At.thumbnail_path paths of
+                    Nothing -> return $ Right $ Just $ At.Paths filepath Nothing
+                    Just thumb_url -> do
+                        thumb_result <- Client.getFile thumb_url
+
+                        case thumb_result of
+                            Left err -> do
+                                print err
+                                return $ Right $ Just $ At.Paths filepath Nothing
+                            Right thumb_path -> return $ Right $ Just $ At.Paths filepath $ Just thumb_path
+
+    return $ result >>= \x -> Just (a, b, c, d, x, f)
