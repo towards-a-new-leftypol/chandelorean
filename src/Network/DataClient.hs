@@ -22,6 +22,7 @@ module Network.DataClient
   , getJSON
   , getFile
   , getLatestPostsPerBoard
+  , updatePostIsMissingAttachments
   ) where
 
 import Control.Monad (forM)
@@ -252,7 +253,7 @@ getLatestPostsPerBoard settings =
 
 updatePostIsMissingAttachments :: T.JSONSettings -> [ Int64 ] -> IO (Either HttpError ())
 updatePostIsMissingAttachments settings post_ids =
-    post settings path payload False >>= return . eitherDecodeResponse
+    patch settings path payload False >>= return . eitherDecodeResponse
 
     where
         path = "/posts?post_id=in.(" ++ intercalate "," (map show post_ids) ++ ")"

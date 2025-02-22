@@ -71,7 +71,6 @@ threadMain csmr_settings board_elem = do
                 (\t -> Lib.epochToUTCTime (JS.last_modified t) > board_last_modified)
                 catalog_threads
 
-
         let settings = mkJsonSettings csmr_settings site
 
         liftIO $ print changed_threads

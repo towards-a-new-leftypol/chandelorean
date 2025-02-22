@@ -199,6 +199,8 @@ saveNewAttachments settings post_tuples = do
 
     let cleared_post_ids = map At.post_id posted_attachments
 
+    _ <- liftIO $ Client.updatePostIsMissingAttachments settings cleared_post_ids
+
     return ()
 
 
