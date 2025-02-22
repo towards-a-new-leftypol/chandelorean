@@ -27,6 +27,9 @@ module Lib
     , Details
     , parseAttachments
     , insertRecord
+    , computeAttachmentHash
+    , copyOrMoveFiles
+    , moveAttachmentAndThumb
     ) where
 
 import System.Exit
@@ -326,9 +329,13 @@ phash_mimetypes = Set.fromList
     ]
 
 
-copyOrMoveFiles :: J.JSONSettings -> FileGetters -> Details -> IO ()
-copyOrMoveFiles settings fgs (site, board, thread, _, path, attachment) = do
-    (copyOrMove fgs) common_dest (src, dest) (thumb_src, thumb_dest)
+copyOrMoveFiles
+    :: J.JSONSettings
+    -> (String -> (String, String) -> (Maybe String, String) -> IO ())
+    -> Details
+    -> IO ()
+copyOrMoveFiles settings copyOrMove (site, board, thread, _, path, attachment) = do
+    copyOrMove common_dest (src, dest) (thumb_src, thumb_dest)
 
     -- src = (At.file_path | At.thumb_path)
     -- dest = <media_root>/<website_name>/<boardpart>/<board_thread_id>/<sha>.<ext>
@@ -359,6 +366,7 @@ copyOrMoveFiles settings fgs (site, board, thread, _, path, attachment) = do
 
 
 type Details = (Sites.Site, Boards.Board, Threads.Thread, Posts.Post, At.Paths, At.Attachment)
+
 
 parseAttachments
     :: String
@@ -400,7 +408,6 @@ parseAttachments path_prefix (site, board, thread, p, q) = filter notDeleted $
         notDeleted (_, _, _, _, paths, _) = not $ "deleted" `isSuffixOf` (At.file_path paths)
 
 
-
 parseLegacyPaths :: Boards.Board -> JSONPost.Post -> String -> Maybe (At.Paths, At.Attachment)
 parseLegacyPaths board post path_prefix = do
     tim <- JSONPost.tim post
@@ -437,6 +444,59 @@ parseLegacyPaths board post path_prefix = do
             }
 
     return (p, attachment)
+
+
+computeAttachmentHash :: Details -> IO At.Attachment
+computeAttachmentHash (_, _, _, _, p, q) = do
+    let f = At.file_path p
+
+    putStrLn $ "Reading " ++ f
+
+    sha256_sum <- Hash.computeSHA256 f
+
+    putStrLn $ "SHA-256: " ++ unpack sha256_sum
+
+    phash :: Maybe Int64 <-
+        case (At.mimetype q) `Set.member` phash_mimetypes of
+            True -> do
+                putStrLn $ "Running tryAny $ fileHash f " ++ f
+                either_exception <- tryAny $ fileHash f
+                putStrLn $ "Done tryAny $ fileHash f " ++ f
+
+                case either_exception of
+                    Left (err :: SomeException) -> do
+                        putStrLn $ "Error while computing the perceptual hash of file " ++ f ++ " " ++ displayException err
+                        return Nothing
+                    Right either_phash ->
+                        case either_phash of
+                            Left err_str -> do
+                                putStrLn $ "Failed to compute phash for file " ++ (unpack sha256_sum) ++ " " ++ f ++ " " ++ err_str
+                                return Nothing
+                            Right phash_w -> do
+                                result <- tryAsync $ do
+                                    let phash_i = Words.wordToSignedInt64 phash_w
+
+                                    if phash_i == 0 then do
+                                        putStrLn $ "phash is 0 for file " ++ (unpack sha256_sum) ++ " " ++ f
+                                        return Nothing
+                                    else do
+                                        putStrLn $ "phash: " ++ show phash_w
+                                        return $ Just $ Words.wordToSignedInt64 phash_w
+
+                                case result of
+                                    Left (err2 :: SomeException) -> do
+                                        putStrLn $ "Error handling phash result! " ++ displayException err2
+                                        return Nothing
+
+                                    Right w -> return w
+
+            False -> return Nothing
+
+
+    return q
+        { At.sha256_hash = sha256_sum
+        , At.phash = phash
+        }
 
 
 processFiles
@@ -494,65 +554,13 @@ processFiles settings fgs tuples = do -- perfect just means that our posts have 
 
                 Right saved -> do
                     putStrLn $ "Saved " ++ (show $ length saved) ++ " attachments!"
-                    mapM_ (copyOrMoveFiles settings fgs) to_insert_exist
+                    mapM_ (copyOrMoveFiles settings (copyOrMove fgs)) to_insert_exist
 
     where
         ensureAttachmentExists :: Details -> IO (Maybe Details)
         ensureAttachmentExists (a, b, c, d, p, f) =
             (attachmentPaths fgs) p >>=
                 return . (maybe Nothing (\x -> Just (a, b, c, d, x, f)))
-
-        computeAttachmentHash :: Details -> IO At.Attachment
-        computeAttachmentHash (_, _, _, _, p, q) = do
-            let f = At.file_path p
-
-            putStrLn $ "Reading " ++ f
-
-            sha256_sum <- Hash.computeSHA256 f
-
-            putStrLn $ "SHA-256: " ++ unpack sha256_sum
-
-            phash :: Maybe Int64 <-
-                case (At.mimetype q) `Set.member` phash_mimetypes of
-                    True -> do
-                        putStrLn $ "Running tryAny $ fileHash f " ++ f
-                        either_exception <- tryAny $ fileHash f
-                        putStrLn $ "Done tryAny $ fileHash f " ++ f
-
-                        case either_exception of
-                            Left (err :: SomeException) -> do
-                                putStrLn $ "Error while computing the perceptual hash of file " ++ f ++ " " ++ displayException err
-                                return Nothing
-                            Right either_phash ->
-                                case either_phash of
-                                    Left err_str -> do
-                                        putStrLn $ "Failed to compute phash for file " ++ (unpack sha256_sum) ++ " " ++ f ++ " " ++ err_str
-                                        return Nothing
-                                    Right phash_w -> do
-                                        result <- tryAsync $ do
-                                            let phash_i = Words.wordToSignedInt64 phash_w
-
-                                            if phash_i == 0 then do
-                                                putStrLn $ "phash is 0 for file " ++ (unpack sha256_sum) ++ " " ++ f
-                                                return Nothing
-                                            else do
-                                                putStrLn $ "phash: " ++ show phash_w
-                                                return $ Just $ Words.wordToSignedInt64 phash_w
-
-                                        case result of
-                                            Left (err2 :: SomeException) -> do
-                                                putStrLn $ "Error handling phash result! " ++ displayException err2
-                                                return Nothing
-
-                                            Right w -> return w
-
-                    False -> return Nothing
-
-
-            return q
-                { At.sha256_hash = sha256_sum
-                , At.phash = phash
-                }
 
         path_prefix :: String
         path_prefix = (addPathPrefix fgs) ""
@@ -584,6 +592,7 @@ localIndexFoldf (posts, idx_map) (t, p, c) =
         post i = apiPostToArchivePost i t p
 
         thread_id = Client.thread_id c
+
 
 createNewPosts
     :: J.JSONSettings
@@ -795,12 +804,16 @@ httpFileGetters settings = FileGetters
                     Right tp -> return $ Just $ At.Paths p $ Just tp
 
 
-    , copyOrMove = \common_dest (src, dest) (m_thumb_src, thumb_dest) -> do
-        putStrLn $ "Copy Or Move (Move) src: " ++ src ++ " dest: " ++ dest
-        createDirectoryIfMissing True common_dest
-        moveFile src dest
-
-        case m_thumb_src of
-          Nothing -> return ()
-          Just thumb_src -> moveFile thumb_src thumb_dest
+    , copyOrMove = moveAttachmentAndThumb
     }
+
+
+moveAttachmentAndThumb :: String -> (String, String) -> (Maybe String, String) -> IO ()
+moveAttachmentAndThumb common_dest (src, dest) (m_thumb_src, thumb_dest) = do
+    putStrLn $ "Copy Or Move (Move) src: " ++ src ++ " dest: " ++ dest
+    createDirectoryIfMissing True common_dest
+    moveFile src dest
+
+    case m_thumb_src of
+      Nothing -> return ()
+      Just thumb_src -> moveFile thumb_src thumb_dest

@@ -31,6 +31,7 @@ import Common.Server.JSONSettings (JSONSettings)
 import qualified Common.Server.JSONSettings as JSettgs
 import qualified Common.AttachmentType as At
 import qualified Lib
+import Control.Monad.IO.Class (liftIO)
 
 
 data ProgramException = HttpException HttpError
@@ -178,9 +179,25 @@ saveNewAttachments settings post_tuples = do
 
     let to_insert = concat $ Map.elems $ attachments_on_board_map `Map.difference` existing_attachment_map
 
-    attachment_paths_results <- mapM downloadAttachment to_insert
+    attachment_details_ <- mapM downloadAttachment to_insert
 
-    let attachment_paths = catMaybes attachment_paths_results
+    let attachment_details = catMaybes attachment_details_
+
+    new_attachments <- mapM (liftIO . Lib.computeAttachmentHash) attachment_details
+
+    posted_attachments <- liftHttpIO $ Client.postAttachments settings new_attachments
+
+    -- take the post ids from posted_attachments and update the is_missing_attachments flag.
+    --      - there's the concern that we will have too many post ids to fit into a url
+
+    -- first just try and get them
+
+    liftIO $
+        mapM_
+            (Lib.copyOrMoveFiles settings Lib.moveAttachmentAndThumb)
+            attachment_details
+
+    let cleared_post_ids = map At.post_id posted_attachments
 
     return ()
 

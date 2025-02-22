@@ -27,7 +27,6 @@ module Network.DataClient
 import Control.Monad (forM)
 import Data.Int (Int64)
 import Data.Either (lefts, rights)
-import qualified Data.ByteString.Lazy.Char8 as BL
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Lazy.Char8 as LC8
 import Data.List (intercalate)
@@ -174,7 +173,6 @@ postAttachments
     -> [ Attachments.Attachment ]
     -> IO (Either HttpError [ Attachments.Attachment ])
 postAttachments settings attachments = do
-    BL.putStrLn payload
     post settings "/attachments" payload True >>= return . eitherDecodeResponse
 
     where
@@ -250,3 +248,12 @@ getFile url = do
 getLatestPostsPerBoard :: T.JSONSettings -> IO (Either HttpError [ GLPPBR.GetLatestPostsPerBoardResponse ])
 getLatestPostsPerBoard settings =
     post settings "/rpc/get_latest_posts_per_board" mempty False >>= return . eitherDecodeResponse
+
+
+updatePostIsMissingAttachments :: T.JSONSettings -> [ Int64 ] -> IO (Either HttpError ())
+updatePostIsMissingAttachments settings post_ids =
+    post settings path payload False >>= return . eitherDecodeResponse
+
+    where
+        path = "/posts?post_id=in.(" ++ intercalate "," (map show post_ids) ++ ")"
+        payload = encode $ object [ "is_missing_attachments" .= False ]
