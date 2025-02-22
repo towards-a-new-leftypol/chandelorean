@@ -1,6 +1,7 @@
 {-# LANGUAGE RecordWildCards #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
 {-# HLINT ignore "Use tuple-section" #-}
+{-# HLINT ignore "Fuse foldr/map" #-}
 
 module Sync where
 
@@ -29,6 +30,7 @@ import qualified PriorityQueue as PQ
 import qualified Lib2
 import qualified JSONParsing as JS
 import qualified JSONPost
+import qualified Common.PostsType as Post
 
 consumerSettingsToPartialJSONSettings :: S.ConsumerJSONSettings -> JS.JSONSettings
 consumerSettingsToPartialJSONSettings S.ConsumerJSONSettings {..} =
@@ -71,33 +73,45 @@ threadMain csmr_settings board_elem = do
                 (\t -> Lib.epochToUTCTime (JS.last_modified t) > board_last_modified)
                 catalog_threads
 
-        let settings = mkJsonSettings csmr_settings site
+        if null changed_threads
+        then
+            return board_last_modified
+        else do
+            let settings = mkJsonSettings csmr_settings site
 
-        liftIO $ print changed_threads
+            liftIO $ print changed_threads
 
-        threads <- Lib2.saveNewThreads settings (QE.board board_elem) changed_threads
+            threads <- Lib2.saveNewThreads settings (QE.board board_elem) changed_threads
 
-        web_posts :: [ (Thread.Thread, [ JSONPost.Post ]) ] <- mapM
-            (Lib2.httpGetPostsJSON site board)
-            threads
+            web_posts :: [ (Thread.Thread, [ JSONPost.Post ]) ] <- mapM
+                (Lib2.httpGetPostsJSON site board)
+                threads
 
-        posts <- Lib2.saveNewPosts settings web_posts
+            posts <- Lib2.saveNewPosts settings web_posts
 
-        let web_post_tuples
-                :: [ (Site.Site, Board.Board, Thread.Thread, JSONPost.Post) ]
-                = concatMap
-                    (\(t, ps) -> map (\p -> (site, board, t, p)) ps)
-                    web_posts
+            let web_post_tuples
+                    :: [ (Site.Site, Board.Board, Thread.Thread, JSONPost.Post) ]
+                    = concatMap
+                        (\(t, ps) -> map (\p -> (site, board, t, p)) ps)
+                        web_posts
 
-        let post_tuples = Lib.addPostsToTuples web_post_tuples posts
+            let post_tuples = Lib.addPostsToTuples web_post_tuples posts
 
-        Lib2.saveNewAttachments settings post_tuples
+            Lib2.saveNewAttachments settings post_tuples
 
-        return ()
+            -- most recent timestamp of all the posts we just saved
+            return
+                $ foldr max board_last_modified
+                $ map Post.creation_time posts
 
 
-    print thread_results
-    return board_elem
+    case thread_results of
+        Left err -> do
+            putStrLn $ "Thread error occurred while processing " ++ show board_elem
+            print err
+            return board_elem
+        Right max_t ->
+            return board_elem { QE.last_modified = max_t }
 
 
 mainLoop :: S.ConsumerJSONSettings -> PQ.Queue QE.BoardQueueElem -> IO ()
@@ -251,32 +265,3 @@ syncWebsites csmr_settings = do
     print pq
 
     mainLoop csmr_settings pq
-
-    -- we have our boards last modified timestamps
-    -- get list of boards per site
-
-    -- first we need all the (Site, Board) tuples ✓
-    -- perhaps we even want all (Site, Board, Thread) ✓
-    -- But then we don't load the posts of each thread, instead only do
-    -- that for threads which change,
-    --    - which means after we get all the threads
-    --    - enter a loop where you
-    --        - pick a board
-    --        - compare the threads online to memory
-    --        - load only the changed/new ones
-    --        - put board back
-
-
-    -- NEW TODO:
-    --  - ensure that sites in the settings exist in the database! ✓
-    --  - ensure that boards per site in the settings exist in the database! ✓
-    --  - finish using ExceptT and use sites, latest_posts_per_board to populate
-    --    our PriorityQueue ✓
-    --  - write event loop that
-    --       - get pq from stm shared value ✓
-    --       - uses the pq (there was something about the timestamps in the pq having to be reversed btw) ✓
-    --       - ensures threads ✓
-    --       - has a value that should be added to the pq
-    --       - uses stm to update pq shared value ✓
-    --
-    --
