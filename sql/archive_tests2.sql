@@ -321,3 +321,24 @@ SELECT * FROM get_latest_posts_per_board();
 SELECT * FROM boards JOIN sites ON boards.site_id = sites.site_id WHERE sites.name = 'leftychan';
 
 ALTER TABLE posts ADD COLUMN is_missing_attachments boolean NOT NULL DEFAULT false;
+
+SELECT * FROM posts WHERE board_post_id = 1044;
+
+SELECT DISTINCT ON (p.thread_id) *
+FROM posts p
+JOIN threads t ON t.thread_id = p.thread_id
+WHERE t.board_id = 36
+ORDER BY p.thread_id DESC, p.creation_time DESC
+LIMIT 1000;
+
+CREATE OR REPLACE FUNCTION top_threads(board_id int, max_rows int)
+RETURNS SETOF posts AS $$
+    SELECT DISTINCT ON (p.thread_id) p.*
+    FROM posts p
+    JOIN threads t ON t.thread_id = p.thread_id
+    WHERE t.board_id = board_id
+    ORDER BY p.thread_id DESC, p.creation_time DESC
+    LIMIT max_rows;
+$$ LANGUAGE sql STABLE;
+
+SELECT * FROM top_threads(36, 10);

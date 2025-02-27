@@ -22,6 +22,7 @@ DROP FUNCTION IF EXISTS update_post_body_search_index;
 DROP FUNCTION IF EXISTS fetch_top_threads;
 DROP FUNCTION IF EXISTS fetch_catalog;
 DROP FUNCTION IF EXISTS get_latest_posts_per_board;
+DROP FUNCTION IF EXISTS top_threads;
 
 
 -- It won't let us drop roles otherwise and the IFs are to keep this script idempotent.
@@ -430,6 +431,17 @@ RETURNS TABLE (
 $$ LANGUAGE sql STABLE;
 
 
+CREATE OR REPLACE FUNCTION top_threads(board_id int, max_rows int)
+RETURNS SETOF posts AS $$
+    SELECT DISTINCT ON (p.thread_id) p.*
+    FROM posts p
+    JOIN threads t ON t.thread_id = p.thread_id
+    WHERE t.board_id = board_id
+    ORDER BY p.thread_id DESC, p.creation_time DESC
+    LIMIT max_rows;
+$$ LANGUAGE sql STABLE;
+
+
 /*
  * Permissions
  */
@@ -440,6 +452,7 @@ REVOKE EXECUTE ON FUNCTION search_posts FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION update_post_body_search_index FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION get_posts FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION get_latest_posts_per_board FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION top_threads FROM PUBLIC;
 
 CREATE ROLE chan_archive_anon nologin;
 GRANT CONNECT ON DATABASE chan_archives              TO chan_archive_anon;
@@ -453,6 +466,7 @@ GRANT EXECUTE ON FUNCTION fetch_top_threads          TO chan_archive_anon;
 GRANT EXECUTE ON FUNCTION search_posts               TO chan_archive_anon;
 GRANT EXECUTE ON FUNCTION get_posts                  TO chan_archive_anon;
 GRANT EXECUTE ON FUNCTION get_latest_posts_per_board TO chan_archive_anon;
+GRANT EXECUTE ON FUNCTION top_threads                TO chan_archive_anon;
 
 -- GRANT usage, select ON SEQUENCE sites_site_id_seq TO chan_archive_anon;
 -- GRANT usage, select ON SEQUENCE boards_board_id_seq TO chan_archive_anon;
@@ -474,6 +488,7 @@ GRANT EXECUTE ON FUNCTION fetch_catalog                 TO chan_archiver;
 GRANT EXECUTE ON FUNCTION search_posts                  TO chan_archiver;
 GRANT EXECUTE ON FUNCTION get_posts                     TO chan_archiver;
 GRANT EXECUTE ON FUNCTION get_latest_posts_per_board    TO chan_archiver;
+GRANT EXECUTE ON FUNCTION top_threads                   TO chan_archiver;
 GRANT usage, select ON SEQUENCE sites_site_id_seq       TO chan_archiver;
 GRANT usage, select ON SEQUENCE boards_board_id_seq     TO chan_archiver;
 GRANT usage, select ON SEQUENCE threads_thread_id_seq   TO chan_archiver;

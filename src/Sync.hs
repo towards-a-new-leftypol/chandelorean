@@ -32,6 +32,7 @@ import qualified JSONParsing as JS
 import qualified JSONPost
 import qualified Common.PostsType as Post
 
+
 consumerSettingsToPartialJSONSettings :: S.ConsumerJSONSettings -> JS.JSONSettings
 consumerSettingsToPartialJSONSettings S.ConsumerJSONSettings {..} =
     JS.JSONSettings
@@ -56,8 +57,8 @@ threadMain csmr_settings board_elem = do
     putStrLn $ Board.pathpart $ QE.board board_elem
 
     -- this is essentially the same as Lib.processBoard
-    -- but Lib2 uses ExceptT instead of IO, which saves us from writing all
-    -- of the error handling every time we make an http call. That can be done
+    -- but uses ExceptT instead of IO, which saves us from writing all
+    -- of the error handling cases every time we make an http call. That can be done
     -- once at the end.
     thread_results <- runExceptT $ do
         let site = QE.site board_elem
@@ -127,6 +128,7 @@ mainLoop csmr_settings pq = do
         loop sem stdGen pqvar = do
             waitQSem sem -- make sure we don't have too many threads running
 
+            -- select a board
             (board_elem, stdGen_) <- atomically $ do
                 pq_a <- readTVar pqvar
 
@@ -142,13 +144,16 @@ mainLoop csmr_settings pq = do
 
                     return (board_elem, stdGen_)
 
+            -- process the board...
             _ <- forkFinally (threadMain csmr_settings board_elem) $ \threadResult -> do
                 board_elem_ <- case threadResult of
                     Left e -> print e >> return board_elem
                     Right a -> return a
 
+                -- ...and put it back in the queue
                 atomically $ modifyTVar' pqvar (PQ.put board_elem_)
 
+                -- release the semaphore, to allow another thread to pick up a task
                 signalQSem sem
 
             threadDelay (S.sync_loop_timeout_microseconds csmr_settings)
@@ -260,8 +265,5 @@ syncWebsites csmr_settings = do
                 site_and_board_list
 
     let pq :: PQ.Queue QE.BoardQueueElem = Set.fromList queue_elems
-
-    putStrLn "PQ:"
-    print pq
 
     mainLoop csmr_settings pq
