@@ -261,7 +261,7 @@ updatePostIsMissingAttachments settings post_ids =
         payload = encode $ object [ "is_missing_attachments" .= False ]
 
 
-getTopThreads :: T.JSONSettings -> Int -> Int -> IO (Either HttpError [ Posts.Post ])
+getTopThreads :: T.JSONSettings -> Int -> Int -> IO (Either HttpError [ Threads.Thread ])
 getTopThreads settings board_id max_rows =
     post settings "/rpc/top_threads" payload False
         >>= return . eitherDecodeResponse

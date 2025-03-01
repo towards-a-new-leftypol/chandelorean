@@ -101,7 +101,8 @@ threadMain csmr_settings board_elem = do
             -- events sent from the board. While we're doing multiple calls
             -- to the database here, another thread could have added more threads
             -- in which case they will be deleted here.
-            Lib2.removeDeletedThreads settings site board (map Post.thread_id posts)
+            Lib2.removeDeletedThreads settings site board $
+                map (Thread.board_thread_id . (\(_, _, c, _, _) -> c)) post_tuples
 
 
             -- So we also might want to build a service that http posts go to

@@ -239,14 +239,14 @@ removeDeletedThreads
     -> Boards.Board
     -> [ Int64 ]
     -> IOe ()
-removeDeletedThreads settings site board thread_ids_from_web = do
-    let thread_ids_web = Set.fromList thread_ids_from_web
+removeDeletedThreads settings site board board_thread_ids_web_ = do
+    let board_thread_ids_web = Set.fromList board_thread_ids_web_
 
-    thread_ids_db_ <- liftHttpIO $ Client.getTopThreads settings (Boards.board_id board) (Set.size thread_ids_web)
+    board_thread_ids_db_ <- liftHttpIO $ Client.getTopThreads settings (Boards.board_id board) (Set.size board_thread_ids_web)
 
-    let thread_ids_db = Set.fromList $ map Posts.thread_id thread_ids_db_
+    let board_thread_ids_db = Set.fromList $ map Thread.board_thread_id board_thread_ids_db_
 
-    let deleted_thread_ids = thread_ids_db `Set.difference` thread_ids_web
+    let deleted_thread_ids = board_thread_ids_db `Set.difference` board_thread_ids_web
 
     unless (Set.null deleted_thread_ids) $
         liftIO $ putStrLn $ "Removing " ++ show (Set.size deleted_thread_ids) ++ " threads: " ++ show deleted_thread_ids

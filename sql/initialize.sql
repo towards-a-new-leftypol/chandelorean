@@ -432,8 +432,8 @@ $$ LANGUAGE sql STABLE;
 
 
 CREATE OR REPLACE FUNCTION top_threads(board_id int, max_rows int)
-RETURNS SETOF posts AS $$
-    SELECT DISTINCT ON (p.thread_id) p.*
+RETURNS SETOF threads AS $$
+    SELECT DISTINCT ON (p.thread_id) t.*
     FROM posts p
     JOIN threads t ON t.thread_id = p.thread_id
     WHERE t.board_id = board_id
