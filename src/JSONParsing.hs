@@ -13,12 +13,13 @@ import Data.Text (Text)
 import GHC.Generics
 import qualified Data.ByteString.Lazy as B
 import Data.Aeson
+import Data.Int (Int64)
 
 import qualified JSONPost as Post
 import qualified JSONCommonTypes as J
 
 data Thread = Thread
-  { no            :: Int
+  { no            :: Int64
   , sub           :: Maybe Text
   , com           :: Maybe Text
   , name          :: Maybe Text

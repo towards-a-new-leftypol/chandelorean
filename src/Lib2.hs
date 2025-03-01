@@ -5,6 +5,7 @@ module Lib2
   , httpGetPostsJSON
   , saveNewPosts
   , saveNewAttachments
+  , removeDeletedThreads
   ) where
 
 import Control.Monad.Trans.Except (ExceptT (..))
@@ -18,6 +19,8 @@ import Data.Ord (comparing)
 import Data.Bifunctor (first)
 import Data.Maybe (fromJust, catMaybes)
 import Data.Text (Text)
+import System.Directory (removeDirectory)
+import Control.Monad (unless)
 
 import qualified Network.DataClient as Client
 import qualified SitesType  as Sites
@@ -85,7 +88,7 @@ saveNewThreads settings board web_threads = do
             (map JSON.no web_threads)
 
     let
-        archived_board_thread_ids :: Set.Set Int
+        archived_board_thread_ids :: Set.Set Int64
         archived_board_thread_ids =
             Set.fromList $ map Thread.board_thread_id existing_threads
 
@@ -227,3 +230,29 @@ downloadAttachment (a, b, c, d, paths, f) = do
                             Right thumb_path -> return $ Right $ Just $ At.Paths filepath $ Just thumb_path
 
     return $ result >>= \x -> Just (a, b, c, d, x, f)
+
+
+-- Only run this after syncing all of the threads on the board successfully
+removeDeletedThreads
+    :: JSONSettings
+    -> Sites.Site
+    -> Boards.Board
+    -> [ Int64 ]
+    -> IOe ()
+removeDeletedThreads settings site board thread_ids_from_web = do
+    let thread_ids_web = Set.fromList thread_ids_from_web
+
+    thread_ids_db_ <- liftHttpIO $ Client.getTopThreads settings (Boards.board_id board) (Set.size thread_ids_web)
+
+    let thread_ids_db = Set.fromList $ map Posts.thread_id thread_ids_db_
+
+    let deleted_thread_ids = thread_ids_db `Set.difference` thread_ids_web
+
+    unless (Set.null deleted_thread_ids) $
+        liftIO $ putStrLn $ "Removing " ++ show (Set.size deleted_thread_ids) ++ " threads: " ++ show deleted_thread_ids
+
+    mapM_ (liftIO . remove) deleted_thread_ids
+
+    where
+        remove :: Int64 -> IO ()
+        remove = removeDirectory . Lib.makeThreadAttachmentFsPath settings site board

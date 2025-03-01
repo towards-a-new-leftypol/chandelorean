@@ -11,7 +11,7 @@ import Data.Int (Int64)
 
 data Thread = Thread
     { thread_id       :: Int64
-    , board_thread_id :: Int
+    , board_thread_id :: Int64
     , creation_time   :: UTCTime
     , board_id        :: Int
     } deriving (Show, Generic, FromJSON)

@@ -15,7 +15,6 @@ import Control.Concurrent.STM (atomically, retry)
 import Control.Concurrent (threadDelay, forkFinally)
 import System.Random (StdGen, getStdGen)
 import Control.Monad.Trans.Except (runExceptT)
-import Control.Monad.IO.Class (liftIO)
 
 import qualified Common.Server.ConsumerSettings as S
 import qualified Common.Server.JSONSettings as JS
@@ -80,8 +79,6 @@ threadMain csmr_settings board_elem = do
         else do
             let settings = mkJsonSettings csmr_settings site
 
-            liftIO $ print changed_threads
-
             threads <- Lib2.saveNewThreads settings (QE.board board_elem) changed_threads
 
             web_posts :: [ (Thread.Thread, [ JSONPost.Post ]) ] <- mapM
@@ -100,7 +97,18 @@ threadMain csmr_settings board_elem = do
 
             Lib2.saveNewAttachments settings post_tuples
 
-            -- most recent timestamp of all the posts we just saved
+            -- here there needs to be a lock if we're also going to listen to
+            -- events sent from the board. While we're doing multiple calls
+            -- to the database here, another thread could have added more threads
+            -- in which case they will be deleted here.
+            Lib2.removeDeletedThreads settings site board (map Post.thread_id posts)
+
+
+            -- So we also might want to build a service that http posts go to
+            -- to signal new posts, and to also broadcast this out to everyone
+            -- that connects.
+
+            -- result is the most recent timestamp of all the posts we just saved
             return
                 $ foldr max board_last_modified
                 $ map Post.creation_time posts

@@ -23,6 +23,7 @@ module Network.DataClient
   , getFile
   , getLatestPostsPerBoard
   , updatePostIsMissingAttachments
+  , getTopThreads
   ) where
 
 import Control.Monad (forM)
@@ -116,7 +117,7 @@ getAllSites :: T.JSONSettings -> IO (Either HttpError [ Sites.Site ])
 getAllSites settings = get settings "/sites" >>= return . eitherDecodeResponse
 
 
-getThreads :: T.JSONSettings -> Int -> [ Int ] -> IO (Either HttpError [ Threads.Thread ])
+getThreads :: T.JSONSettings -> Int -> [ Int64 ] -> IO (Either HttpError [ Threads.Thread ])
 getThreads settings board_id board_thread_ids =
     get settings path >>= return . eitherDecodeResponse
 
@@ -181,7 +182,7 @@ postAttachments settings attachments = do
 
 
 -- | Function to handle each chunk.
-getPostsChunk :: T.JSONSettings -> [ PostId ] -> IO (Either HttpError [Posts.Post])
+getPostsChunk :: T.JSONSettings -> [ PostId ] -> IO (Either HttpError [ Posts.Post ])
 getPostsChunk settings chunk =
     post settings "/rpc/get_posts" payload False >>= return . eitherDecodeResponse
 
@@ -189,7 +190,7 @@ getPostsChunk settings chunk =
         payload = encode $ object [ "board_posts" .= chunk ]
 
 
-getPosts :: T.JSONSettings -> [ PostId ] -> IO (Either HttpError [Posts.Post])
+getPosts :: T.JSONSettings -> [ PostId ] -> IO (Either HttpError [ Posts.Post ])
 getPosts settings xs = do
     results <- forM (chunkList chunkSize xs) (getPostsChunk settings)
     return $ combineResults results
@@ -258,3 +259,15 @@ updatePostIsMissingAttachments settings post_ids =
     where
         path = "/posts?post_id=in.(" ++ intercalate "," (map show post_ids) ++ ")"
         payload = encode $ object [ "is_missing_attachments" .= False ]
+
+
+getTopThreads :: T.JSONSettings -> Int -> Int -> IO (Either HttpError [ Posts.Post ])
+getTopThreads settings board_id max_rows =
+    post settings "/rpc/top_threads" payload False
+        >>= return . eitherDecodeResponse
+
+    where
+        payload = encode $ object
+            [ "board_id" .= board_id
+            , "max_rows" .= max_rows
+            ]

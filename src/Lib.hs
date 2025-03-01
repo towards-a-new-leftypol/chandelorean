@@ -30,6 +30,7 @@ module Lib
     , computeAttachmentHash
     , copyOrMoveFiles
     , moveAttachmentAndThumb
+    , makeThreadAttachmentFsPath
     ) where
 
 import System.Exit
@@ -193,7 +194,7 @@ createArchivesForNewThreads settings all_threads archived_threads board = do
     where
         board_id :: Int = Boards.board_id board
 
-        archived_board_thread_ids :: Set.Set Int
+        archived_board_thread_ids :: Set.Set Int64
         archived_board_thread_ids =
             Set.fromList $ map Threads.board_thread_id archived_threads
 
@@ -329,6 +330,18 @@ phash_mimetypes = Set.fromList
     ]
 
 
+makeThreadAttachmentFsPath
+    :: J.JSONSettings
+    -> Sites.Site
+    -> Boards.Board
+    -> Int64
+    -> FilePath
+makeThreadAttachmentFsPath settings site board thread_id
+    = (J.media_root_path settings)
+    </> Sites.name site
+    </> Boards.pathpart board
+    </> (show thread_id)
+
 copyOrMoveFiles
     :: J.JSONSettings
     -> (String -> (String, String) -> (Maybe String, String) -> IO ())
@@ -358,11 +371,7 @@ copyOrMoveFiles settings copyOrMove (site, board, thread, _, path, attachment) =
             <.> (unpack $ fromJust $ At.thumb_extension attachment)
 
         common_dest :: FilePath
-        common_dest
-            = (J.media_root_path settings)
-            </> Sites.name site
-            </> Boards.pathpart board
-            </> (show $ Threads.board_thread_id thread)
+        common_dest = makeThreadAttachmentFsPath settings site board (Threads.board_thread_id thread)
 
 
 type Details = (Sites.Site, Boards.Board, Threads.Thread, Posts.Post, At.Paths, At.Attachment)
