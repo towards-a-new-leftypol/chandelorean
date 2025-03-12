@@ -22,7 +22,6 @@ DROP FUNCTION IF EXISTS update_post_body_search_index;
 DROP FUNCTION IF EXISTS fetch_top_threads;
 DROP FUNCTION IF EXISTS fetch_catalog;
 DROP FUNCTION IF EXISTS get_latest_posts_per_board;
-DROP FUNCTION IF EXISTS top_threads;
 
 
 -- It won't let us drop roles otherwise and the IFs are to keep this script idempotent.
@@ -68,7 +67,7 @@ CREATE INDEX threads_board_thread_id_idx ON threads (board_thread_id);
 
 CREATE TABLE IF NOT EXISTS posts
     ( post_id bigserial primary key
-    , board_post_id bigint NOT NULL
+    , board_post_id bigint NOT NULL -- what the id of this post was on the website (should match old mysql post id)
     , creation_time timestamp with time zone NOT NULL
     , body text
     , subject text
@@ -77,8 +76,9 @@ CREATE TABLE IF NOT EXISTS posts
     , body_search_index tsvector
     , thread_id bigint NOT NULL
     , embed text
-    , local_idx int NOT NULL
+    , local_idx int NOT NULL -- this is the integer index of a post within a thread. OP is 1, the first reply is 2 etc
     , is_missing_attachments boolean NOT NULL DEFAULT false
+    , sage boolean NOT NULL DEFAULT false
     , CONSTRAINT unique_thread_board_id_constraint UNIQUE (thread_id, board_post_id)
     , CONSTRAINT thread_fk FOREIGN KEY (thread_id) REFERENCES threads (thread_id) ON DELETE CASCADE
     , CONSTRAINT unique_thread_local_idx UNIQUE (thread_id, local_idx)
@@ -90,6 +90,7 @@ CREATE INDEX posts_board_post_id_idx ON posts (board_post_id);
 CREATE INDEX posts_thread_id_creation_time_idx ON posts (creation_time, thread_id);
 CREATE INDEX posts_local_idx_idx     ON posts (local_idx);
 --CREATE INDEX posts_thread_id_board_post_id_idx ON posts (thread_id, board_post_id);
+CREATE INDEX posts_sage_idx          ON posts (sage);
 
 CREATE OR REPLACE FUNCTION update_post_body_search_index() RETURNS trigger AS $$
 BEGIN
@@ -431,17 +432,6 @@ RETURNS TABLE (
 $$ LANGUAGE sql STABLE;
 
 
-CREATE OR REPLACE FUNCTION top_threads(board_id int, max_rows int)
-RETURNS SETOF threads AS $$
-    SELECT DISTINCT ON (p.thread_id) t.*
-    FROM posts p
-    JOIN threads t ON t.thread_id = p.thread_id
-    WHERE t.board_id = board_id
-    ORDER BY p.thread_id DESC, p.creation_time DESC
-    LIMIT max_rows;
-$$ LANGUAGE sql STABLE;
-
-
 /*
  * Permissions
  */
@@ -452,7 +442,6 @@ REVOKE EXECUTE ON FUNCTION search_posts FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION update_post_body_search_index FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION get_posts FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION get_latest_posts_per_board FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION top_threads FROM PUBLIC;
 
 CREATE ROLE chan_archive_anon nologin;
 GRANT CONNECT ON DATABASE chan_archives              TO chan_archive_anon;
@@ -466,7 +455,6 @@ GRANT EXECUTE ON FUNCTION fetch_top_threads          TO chan_archive_anon;
 GRANT EXECUTE ON FUNCTION search_posts               TO chan_archive_anon;
 GRANT EXECUTE ON FUNCTION get_posts                  TO chan_archive_anon;
 GRANT EXECUTE ON FUNCTION get_latest_posts_per_board TO chan_archive_anon;
-GRANT EXECUTE ON FUNCTION top_threads                TO chan_archive_anon;
 
 -- GRANT usage, select ON SEQUENCE sites_site_id_seq TO chan_archive_anon;
 -- GRANT usage, select ON SEQUENCE boards_board_id_seq TO chan_archive_anon;
@@ -488,7 +476,6 @@ GRANT EXECUTE ON FUNCTION fetch_catalog                 TO chan_archiver;
 GRANT EXECUTE ON FUNCTION search_posts                  TO chan_archiver;
 GRANT EXECUTE ON FUNCTION get_posts                     TO chan_archiver;
 GRANT EXECUTE ON FUNCTION get_latest_posts_per_board    TO chan_archiver;
-GRANT EXECUTE ON FUNCTION top_threads                   TO chan_archiver;
 GRANT usage, select ON SEQUENCE sites_site_id_seq       TO chan_archiver;
 GRANT usage, select ON SEQUENCE boards_board_id_seq     TO chan_archiver;
 GRANT usage, select ON SEQUENCE threads_thread_id_seq   TO chan_archiver;

@@ -317,6 +317,9 @@ RETURNS TABLE (
       ORDER BY b.board_id, p.creation_time DESC;
 $$ LANGUAGE sql STABLE;
 
+GRANT EXECUTE ON FUNCTION get_latest_posts_per_board TO chan_archive_anon;
+GRANT EXECUTE ON FUNCTION get_latest_posts_per_board    TO chan_archiver;
+
 SELECT * FROM get_latest_posts_per_board();
 SELECT * FROM boards JOIN sites ON boards.site_id = sites.site_id WHERE sites.name = 'leftychan';
 
@@ -324,21 +327,68 @@ ALTER TABLE posts ADD COLUMN is_missing_attachments boolean NOT NULL DEFAULT fal
 
 SELECT * FROM posts WHERE board_post_id = 1044;
 
-SELECT DISTINCT ON (p.thread_id) *
+SELECT DISTINCT ON (p.thread_id) t.*
 FROM posts p
 JOIN threads t ON t.thread_id = p.thread_id
-WHERE t.board_id = 36
+WHERE t.board_id = 3
 ORDER BY p.thread_id DESC, p.creation_time DESC
-LIMIT 1000;
+LIMIT 358;
 
-CREATE OR REPLACE FUNCTION top_threads(board_id int, max_rows int)
+DROP FUNCTION top_threads_on_board;
+
+CREATE OR REPLACE FUNCTION top_threads_on_board(given_board_id int, max_rows int)
 RETURNS SETOF threads AS $$
-    SELECT DISTINCT ON (p.thread_id) t.*
-    FROM posts p
-    JOIN threads t ON t.thread_id = p.thread_id
-    WHERE t.board_id = board_id
-    ORDER BY p.thread_id DESC, p.creation_time DESC
+    SELECT t.*
+    FROM threads t
+    JOIN (
+        SELECT thread_id, MAX(creation_time) AS latest_bump
+        FROM posts
+        GROUP BY thread_id
+    ) p ON t.thread_id = p.thread_id
+    WHERE t.board_id = given_board_id
+    ORDER BY p.latest_bump DESC
     LIMIT max_rows;
 $$ LANGUAGE sql STABLE;
 
-SELECT * FROM top_threads(36, 10);
+GRANT EXECUTE ON FUNCTION top_threads_on_board                TO chan_archive_anon;
+GRANT EXECUTE ON FUNCTION top_threads_on_board          TO chan_archiver;
+
+SELECT * FROM top_threads_on_board(3, 358);
+
+SELECT * FROM posts
+	JOIN threads ON posts.thread_id = threads.thread_id
+	WHERE board_thread_id = 11701 AND board_id = 3;
+
+SELECT p.* FROM posts p
+	JOIN threads ON p.thread_id = threads.thread_id
+	WHERE board_id = 3
+  AND board_thread_id = 150860
+  ORDER BY p.creation_time DESC;
+
+-- this will give us the last post's creation time per thread.
+-- (which with merged threads isn't the last post right?)
+-- Try to get as close as possible (ideally) perfectly to the order on the board
+SELECT t.*, latest_bump
+FROM threads t
+JOIN (
+    SELECT thread_id, MAX(creation_time) AS latest_bump
+    FROM posts
+    WHERE (sage = false OR local_idx < 2) -- OP can't sage themselves
+    AND (local_idx <= 600)
+    GROUP BY thread_id
+) p ON t.thread_id = p.thread_id
+WHERE t.board_id = 3
+ORDER BY p.latest_bump DESC
+LIMIT 358;
+
+-- Add the 'sage' column with the default value
+ALTER TABLE posts ADD COLUMN sage boolean NOT NULL DEFAULT false;
+
+UPDATE posts SET sage = (COALESCE(email, '') = 'sage');
+
+UPDATE posts SET sage = true WHERE COALESCE(email, '') = 'Sage';
+
+-- Create an index on the 'sage' column
+CREATE INDEX posts_sage_idx ON posts (sage);
+
+DROP FUNCTION IF EXISTS top_threads_on_board;
