@@ -53,7 +53,7 @@ import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import Data.Time.Clock (UTCTime)
 import qualified Data.Map as Map
 import Data.Maybe (fromJust, catMaybes)
-import Data.Text (Text, unpack)
+import Data.Text (Text, unpack, toLower)
 import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8)
 import Network.Mime (defaultMimeLookup)
@@ -269,7 +269,13 @@ apiPostToArchivePost local_idx thread post =
     , embed           = JSONPost.embed post
     , local_idx       = local_idx
     , is_missing_attachments = postHasAttachments post -- initially posts with attachments aren't complete, keep the db state consistent.
+    , sage            = emailToSage $ JSONPost.email post
     }
+
+    where
+        emailToSage :: Maybe Text -> Bool
+        emailToSage Nothing  = False
+        emailToSage (Just t) = toLower t == "sage"
 
 
 addPostsToTuples
