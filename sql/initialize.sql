@@ -416,19 +416,29 @@ RETURNS TABLE (
     thread_id bigint,
     board_thread_id bigint
 ) AS $$
-    SELECT DISTINCT ON (b.board_id) 
-           b.board_id,
-           b.site_id,
-           b.pathpart,
-           p.post_id,
-           p.board_post_id,
-           p.creation_time,
-           t.thread_id,
-           t.board_thread_id
-      FROM boards b
-      LEFT JOIN threads t ON t.board_id = b.board_id
-      LEFT JOIN posts   p ON p.thread_id = t.thread_id AND p.is_missing_attachments = false
-      ORDER BY b.board_id, p.creation_time DESC;
+    SELECT
+        b.board_id,
+        b.site_id,
+        b.pathpart,
+        top_post.post_id,
+        top_post.board_post_id,
+        top_post.creation_time,
+        top_post.thread_id,
+        top_post.board_thread_id
+    FROM boards b
+    LEFT JOIN LATERAL (
+        SELECT
+            t.thread_id,
+            t.board_thread_id,
+            p.post_id,
+            p.board_post_id,
+            p.creation_time
+        FROM threads t
+        LEFT JOIN posts p ON p.thread_id = t.thread_id AND p.is_missing_attachments = false
+        WHERE t.board_id = b.board_id
+        ORDER BY p.creation_time DESC
+        LIMIT 1
+    ) AS top_post ON true;
 $$ LANGUAGE sql STABLE;
 
 

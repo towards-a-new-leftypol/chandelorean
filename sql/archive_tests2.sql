@@ -289,7 +289,6 @@ SELECT DISTINCT ON (b.board_id)
   LEFT JOIN posts   p ON p.thread_id = t.thread_id AND p.is_missing_attachments = false
   ORDER BY b.board_id, p.creation_time DESC;
 
-
 -- for Sync
 CREATE OR REPLACE FUNCTION get_latest_posts_per_board()
 RETURNS TABLE (
@@ -392,3 +391,77 @@ UPDATE posts SET sage = true WHERE COALESCE(email, '') = 'Sage';
 CREATE INDEX posts_sage_idx ON posts (sage);
 
 DROP FUNCTION IF EXISTS top_threads_on_board;
+
+SELECT t.*, latest_bump
+FROM threads t
+JOIN (
+    SELECT thread_id, MAX(creation_time) AS latest_bump
+    FROM posts
+    WHERE (sage = false OR local_idx < 2) -- OP can't sage themselves
+    AND (local_idx <= 600)
+    GROUP BY thread_id
+) p ON t.thread_id = p.thread_id
+WHERE t.board_id = 3
+ORDER BY p.latest_bump DESC
+LIMIT 358;
+
+EXPLAIN ANALYZE SELECT
+    b.board_id,
+    b.site_id,
+    b.pathpart,
+    top_post.post_id,
+    top_post.board_post_id,
+    top_post.creation_time,
+    top_post.thread_id,
+    top_post.board_thread_id
+FROM boards b
+LEFT JOIN LATERAL (
+    SELECT
+        t.thread_id,
+        t.board_thread_id,
+        p.post_id,
+        p.board_post_id,
+        p.creation_time
+    FROM threads t
+    LEFT JOIN posts p ON p.thread_id = t.thread_id AND p.is_missing_attachments = false
+    WHERE t.board_id = b.board_id
+    ORDER BY p.creation_time DESC
+    LIMIT 1
+) AS top_post ON true;
+
+
+CREATE OR REPLACE FUNCTION get_latest_posts_per_board()
+RETURNS TABLE (
+    board_id int,
+    site_id int,
+    pathpart text,
+    post_id bigint,
+    board_post_id bigint,
+    creation_time timestamp with time zone,
+    thread_id bigint,
+    board_thread_id bigint
+) AS $$
+    SELECT
+        b.board_id,
+        b.site_id,
+        b.pathpart,
+        top_post.post_id,
+        top_post.board_post_id,
+        top_post.creation_time,
+        top_post.thread_id,
+        top_post.board_thread_id
+    FROM boards b
+    LEFT JOIN LATERAL (
+        SELECT
+            t.thread_id,
+            t.board_thread_id,
+            p.post_id,
+            p.board_post_id,
+            p.creation_time
+        FROM threads t
+        LEFT JOIN posts p ON p.thread_id = t.thread_id AND p.is_missing_attachments = false
+        WHERE t.board_id = b.board_id
+        ORDER BY p.creation_time DESC
+        LIMIT 1
+    ) AS top_post ON true;
+$$ LANGUAGE sql STABLE;
