@@ -23,7 +23,6 @@ module Network.DataClient
   , getFile
   , getLatestPostsPerBoard
   , updatePostIsMissingAttachments
-  , getTopThreads
   ) where
 
 import Control.Monad (forM)
@@ -259,15 +258,3 @@ updatePostIsMissingAttachments settings post_ids =
     where
         path = "/posts?post_id=in.(" ++ intercalate "," (map show post_ids) ++ ")"
         payload = encode $ object [ "is_missing_attachments" .= False ]
-
-
-getTopThreads :: T.JSONSettings -> Int -> Int -> IO (Either HttpError [ Threads.Thread ])
-getTopThreads settings board_id max_rows =
-    post settings "/rpc/top_threads" payload False
-        >>= return . eitherDecodeResponse
-
-    where
-        payload = encode $ object
-            [ "board_id" .= board_id
-            , "max_rows" .= max_rows
-            ]

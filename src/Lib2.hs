@@ -20,7 +20,6 @@ import Data.Bifunctor (first)
 import Data.Maybe (fromJust, catMaybes)
 import Data.Text (Text)
 import System.Directory (removeDirectory)
-import Control.Monad (unless)
 
 import qualified Network.DataClient as Client
 import qualified SitesType  as Sites
@@ -239,19 +238,8 @@ removeDeletedThreads
     -> Boards.Board
     -> [ Int64 ]
     -> IOe ()
-removeDeletedThreads settings site board board_thread_ids_web_ = do
-    let board_thread_ids_web = Set.fromList board_thread_ids_web_
-
-    board_thread_ids_db_ <- liftHttpIO $ Client.getTopThreads settings (Boards.board_id board) (Set.size board_thread_ids_web)
-
-    let board_thread_ids_db = Set.fromList $ map Thread.board_thread_id board_thread_ids_db_
-
-    let deleted_thread_ids = board_thread_ids_db `Set.difference` board_thread_ids_web
-
-    unless (Set.null deleted_thread_ids) $
-        liftIO $ putStrLn $ "Removing " ++ show (Set.size deleted_thread_ids) ++ " threads: " ++ show deleted_thread_ids
-
-    mapM_ (liftIO . remove) deleted_thread_ids
+removeDeletedThreads settings site board board_thread_ids_web_ = return ()
+    -- mapM_ (liftIO . remove) deleted_thread_ids
 
     where
         remove :: Int64 -> IO ()
