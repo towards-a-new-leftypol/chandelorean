@@ -67,52 +67,52 @@ threadMain csmr_settings board_elem = do
 
         let catalog_threads = concatMap (fromMaybe [] . JS.threads) catalog_results
 
+        -- on the first run, this value comes from the latest_posts_per_board_results call
+        -- but then we should update it.
         let board_last_modified = QE.last_modified board_elem
 
         let changed_threads = filter
                 (\t -> Lib.epochToUTCTime (JS.last_modified t) > board_last_modified)
                 catalog_threads
 
-        if null changed_threads
-        then
-            return board_last_modified
-        else do
-            let settings = mkJsonSettings csmr_settings site
+        -- if null changed_threads
+        -- then
+        --     return board_last_modified
+        -- else do
 
-            threads <- Lib2.saveNewThreads settings (QE.board board_elem) changed_threads
+        let settings = mkJsonSettings csmr_settings site
 
-            web_posts :: [ (Thread.Thread, [ JSONPost.Post ]) ] <- mapM
-                (Lib2.httpGetPostsJSON site board)
-                threads
+        threads <- Lib2.saveNewThreads settings (QE.board board_elem) changed_threads
 
-            posts <- Lib2.saveNewPosts settings web_posts
+        web_posts :: [ (Thread.Thread, [ JSONPost.Post ]) ] <- mapM
+            (Lib2.httpGetPostsJSON site board)
+            threads
 
-            let web_post_tuples
-                    :: [ (Site.Site, Board.Board, Thread.Thread, JSONPost.Post) ]
-                    = concatMap
-                        (\(t, ps) -> map (\p -> (site, board, t, p)) ps)
-                        web_posts
+        posts <- Lib2.saveNewPosts settings web_posts
 
-            let post_tuples = Lib.addPostsToTuples web_post_tuples posts
+        let web_post_tuples
+                :: [ (Site.Site, Board.Board, Thread.Thread, JSONPost.Post) ]
+                = concatMap
+                    (\(t, ps) -> map (\p -> (site, board, t, p)) ps)
+                    web_posts
 
-            Lib2.saveNewAttachments settings post_tuples
+        let post_tuples = Lib.addPostsToTuples web_post_tuples posts
 
-            -- here there needs to be a lock if we're also going to listen to
-            -- events sent from the board. While we're doing multiple calls
-            -- to the database here, another thread could have added more threads
-            -- in which case they will be deleted here.
-            Lib2.removeDeletedThreads settings site board $
-                map (Thread.board_thread_id . (\(_, _, c, _, _) -> c)) post_tuples
+        Lib2.saveNewAttachments settings post_tuples
+
+        Lib2.removeDeletedThreads settings board_elem catalog_threads
 
 
-            -- So we also might want to build a service that http posts go to
-            -- to signal new posts, and to also broadcast this out to everyone
-            -- that connects.
+        -- So we also might want to build a service that http posts go to
+        -- to signal new posts, and to also broadcast this out to everyone
+        -- that connects.
 
-            -- result is the most recent timestamp of all the posts we just saved
-            return
-                $ foldr max board_last_modified
+        -- result is the most recent timestamp of all the posts we just saved
+        return
+            ( foldr max board_last_modified
                 $ map Post.creation_time posts
+            , Just catalog_threads
+            )
 
 
     case thread_results of
@@ -120,8 +120,8 @@ threadMain csmr_settings board_elem = do
             putStrLn $ "Thread error occurred while processing " ++ show board_elem
             print err
             return board_elem
-        Right max_t ->
-            return board_elem { QE.last_modified = max_t }
+        Right (max_t, current_catalog) ->
+            return board_elem { QE.last_modified = max_t, QE.last_catalog = current_catalog }
 
 
 mainLoop :: S.ConsumerJSONSettings -> PQ.Queue QE.BoardQueueElem -> IO ()
@@ -263,12 +263,13 @@ syncWebsites csmr_settings = do
     let queue_elems =
             map
                 (\(site, board) -> QE.BoardQueueElem
-                    { QE.site = site
-                    , QE.board = board
-                    , QE.last_modified =
+                    { site = site
+                    , board = board
+                    , last_modified =
                         (Map.!)
                             board_id_to_last_modified
                             (Board.board_id board)
+                    , last_catalog = Nothing
                     }
                 )
                 site_and_board_list

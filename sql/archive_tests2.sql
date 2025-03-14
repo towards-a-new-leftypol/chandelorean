@@ -405,7 +405,7 @@ WHERE t.board_id = 3
 ORDER BY p.latest_bump DESC
 LIMIT 358;
 
-EXPLAIN ANALYZE SELECT
+SELECT
     b.board_id,
     b.site_id,
     b.pathpart,
@@ -415,7 +415,7 @@ EXPLAIN ANALYZE SELECT
     top_post.thread_id,
     top_post.board_thread_id
 FROM boards b
-LEFT JOIN LATERAL (
+LEFT OUTER JOIN LATERAL (
     SELECT
         t.thread_id,
         t.board_thread_id,
@@ -465,3 +465,5 @@ RETURNS TABLE (
         LIMIT 1
     ) AS top_post ON true;
 $$ LANGUAGE sql STABLE;
+
+SELECT * FROM get_latest_posts_per_board();  

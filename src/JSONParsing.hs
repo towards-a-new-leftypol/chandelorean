@@ -34,10 +34,10 @@ data Thread = Thread
   , cyclical      :: Maybe J.Cyclical
   , last_modified :: Int
   -- , board         :: Text
-  , files         :: Maybe [J.File]
+  , files         :: Maybe [ J.File ]
   , resto         :: Int
   , unique_ips    :: Maybe Int
-  } deriving (Show, Generic)
+  } deriving (Show, Generic, Eq, Ord)
 
 instance FromJSON Thread
 --instance ToJSON Thread

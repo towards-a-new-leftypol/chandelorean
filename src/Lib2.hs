@@ -19,7 +19,9 @@ import Data.Ord (comparing)
 import Data.Bifunctor (first)
 import Data.Maybe (fromJust, catMaybes)
 import Data.Text (Text)
-import System.Directory (removeDirectory)
+import System.Directory (removeDirectory, doesDirectoryExist)
+import Control.Monad.IO.Class (liftIO)
+import Control.Monad (when, unless)
 
 import qualified Network.DataClient as Client
 import qualified SitesType  as Sites
@@ -33,7 +35,7 @@ import Common.Server.JSONSettings (JSONSettings)
 import qualified Common.Server.JSONSettings as JSettgs
 import qualified Common.AttachmentType as At
 import qualified Lib
-import Control.Monad.IO.Class (liftIO)
+import qualified BoardQueueElem as QE
 
 
 data ProgramException = HttpException HttpError
@@ -234,13 +236,36 @@ downloadAttachment (a, b, c, d, paths, f) = do
 -- Only run this after syncing all of the threads on the board successfully
 removeDeletedThreads
     :: JSONSettings
-    -> Sites.Site
-    -> Boards.Board
-    -> [ Int64 ]
+    -> QE.BoardQueueElem
+    -> [ JSON.Thread ]
     -> IOe ()
-removeDeletedThreads settings site board board_thread_ids_web_ = return ()
-    -- mapM_ (liftIO . remove) deleted_thread_ids
+removeDeletedThreads _ QE.BoardQueueElem { QE.last_catalog = Nothing } _ = return ()
+removeDeletedThreads settings board_elem new_catalog = do
+    let old_map :: Map.Map JSON.Thread Int = createIdxMap (fromJust $ QE.last_catalog board_elem)
+    let new_map :: Map.Map JSON.Thread Int = createIdxMap new_catalog
+
+    let gone = old_map `Map.difference` new_map
+
+    let max_position = Map.size old_map `div` 2
+    let to_delete = Map.filter (< max_position) gone
+
+    unless (Map.null to_delete) $
+        liftIO $ putStrLn $ "Deleting " ++ show (Map.size to_delete) ++ " threads: " ++ show (map (JSON.no . fst) $ Map.toList to_delete)
+
+    -- mapM_ (liftIO . rmThread . JSON.no . fst) (Map.toList to_delete)
+
 
     where
-        remove :: Int64 -> IO ()
-        remove = removeDirectory . Lib.makeThreadAttachmentFsPath settings site board
+        createIdxMap :: (Ord a) => [a] -> Map.Map a Int
+        createIdxMap xs = Map.fromList $ zip xs [0..]
+
+        site = QE.site board_elem
+        board = QE.board board_elem
+
+        rmThread :: Int64 -> IO ()
+        rmThread board_thread_id = do
+            let path = Lib.makeThreadAttachmentFsPath settings site board board_thread_id
+
+            exists <- doesDirectoryExist path
+
+            when exists $ removeDirectory path

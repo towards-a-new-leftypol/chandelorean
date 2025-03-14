@@ -9,7 +9,7 @@ import Data.Aeson
 import Data.Aeson.Types (typeMismatch)
 import GHC.Generics
 
-data Cyclical = Cyclical Int deriving (Show, Generic)
+newtype Cyclical = Cyclical Int deriving (Show, Generic, Eq, Ord)
 
 instance FromJSON Cyclical where
     parseJSON (Number n) = return $ Cyclical (floor n)
@@ -33,7 +33,7 @@ data File = File
   , md5        :: Text
   , file_path  :: Text
   , thumb_path :: Text
-  } deriving (Show, Generic)
+  } deriving (Show, Generic, Eq, Ord)
 
 instance FromJSON File
 --instance ToJSON File
