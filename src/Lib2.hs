@@ -19,7 +19,7 @@ import Data.Ord (comparing)
 import Data.Bifunctor (first)
 import Data.Maybe (fromJust, catMaybes)
 import Data.Text (Text)
-import System.Directory (removeDirectory, doesDirectoryExist)
+import System.Directory (removeDirectoryRecursive, doesDirectoryExist)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad (when, unless)
 
@@ -253,7 +253,7 @@ removeDeletedThreads settings board_elem new_catalog = do
     unless (Map.null to_delete) $ do
         liftIO $ putStrLn $ "Deleting " ++ show (Map.size to_delete) ++ " threads: " ++ show to_del_board_thread_ids
 
-        liftHttpIO $
+        _ <- liftHttpIO $
             Client.deleteThreads
                 settings
                 (Boards.board_id board)
@@ -275,4 +275,4 @@ removeDeletedThreads settings board_elem new_catalog = do
 
             exists <- doesDirectoryExist path
 
-            when exists $ removeDirectory path
+            when exists $ removeDirectoryRecursive path

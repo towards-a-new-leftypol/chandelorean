@@ -126,9 +126,9 @@ getThreads settings board_id board_thread_ids =
         ids :: String = intercalate "," $ map show board_thread_ids
 
 
-deleteThreads :: T.JSONSettings -> Int -> [ Int64 ] -> IO (Either HttpError ())
+deleteThreads :: T.JSONSettings -> Int -> [ Int64 ] -> IO (Either HttpError LBS.ByteString)
 deleteThreads settings board_id board_thread_ids =
-    delete settings path False >>= return . eitherDecodeResponse
+    delete settings path False
 
     where
         path = "/threads?board_thread_id=in.(" ++ ids ++ ")&board_id=eq." ++ show board_id

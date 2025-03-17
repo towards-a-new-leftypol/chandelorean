@@ -11,7 +11,11 @@ data BoardQueueElem = BoardQueueElem
     , board :: Board
     , last_modified :: UTCTime
     , last_catalog :: Maybe [ Thread ]
-    } deriving (Show, Eq)
+    } deriving (Eq)
+
+instance Show BoardQueueElem where
+    show :: BoardQueueElem -> String
+    show b = "<BoardQueueElem " ++ (show $ site b) ++ "; " ++ (show $ board b) ++ ">"
 
 instance Ord BoardQueueElem where
   (<=) :: BoardQueueElem -> BoardQueueElem -> Bool
