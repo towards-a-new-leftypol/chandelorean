@@ -180,8 +180,6 @@ syncWebsites csmr_settings = do
 
     sites <- mapM (flip Lib.ensureSiteExists sitesResult . Lib.toClientSettings csmr_settings) (S.websites csmr_settings)
 
-    print sites
-
     -- initial query to populate boards
     latest_posts_per_board_results <- Client.getLatestPostsPerBoard json_settings
 
@@ -226,7 +224,15 @@ syncWebsites csmr_settings = do
 
     site_and_board_list_ <- mapM
         (\site_settings -> do
-            let site = (Map.!) site_name_to_site (S.name site_settings)
+            let site_name = S.name site_settings
+
+            putStrLn $ "site_name_to_site map: " ++ (show site_name_to_site) ++ " key: " ++ site_name
+            putStrLn $ "member? " ++ show (Map.member site_name site_name_to_site)
+
+            let site = (Map.!) site_name_to_site site_name
+
+            putStrLn $ "Site OK: " ++ show site
+
             let s_id = Site.site_id site
 
             let existing_board_info =
@@ -250,7 +256,7 @@ syncWebsites csmr_settings = do
             boards <- Lib.createArchivesForNewBoards
                     (Lib.toClientSettings csmr_settings site_settings)
                     (Set.fromList $ S.boards site_settings)
-                    ((Map.!) boards_per_site s_id)
+                    (Map.findWithDefault [] s_id boards_per_site)
                     s_id
 
             return (site, existing_boards ++ boards)
@@ -266,9 +272,10 @@ syncWebsites csmr_settings = do
                     { site = site
                     , board = board
                     , last_modified =
-                        (Map.!)
-                            board_id_to_last_modified
+                        Map.findWithDefault
+                            (Lib.epochToUTCTime 0)
                             (Board.board_id board)
+                            board_id_to_last_modified
                     , last_catalog = Nothing
                     }
                 )
