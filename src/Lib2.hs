@@ -248,11 +248,18 @@ removeDeletedThreads settings board_elem new_catalog = do
 
     let max_position = Map.size old_map `div` 2
     let to_delete = Map.filter (< max_position) gone
+    let to_del_board_thread_ids :: [ Int64 ] = map (JSON.no . fst) $ Map.toList to_delete
 
-    unless (Map.null to_delete) $
-        liftIO $ putStrLn $ "Deleting " ++ show (Map.size to_delete) ++ " threads: " ++ show (map (JSON.no . fst) $ Map.toList to_delete)
+    unless (Map.null to_delete) $ do
+        liftIO $ putStrLn $ "Deleting " ++ show (Map.size to_delete) ++ " threads: " ++ show to_del_board_thread_ids
 
-    -- mapM_ (liftIO . rmThread . JSON.no . fst) (Map.toList to_delete)
+        liftHttpIO $
+            Client.deleteThreads
+                settings
+                (Boards.board_id board)
+                to_del_board_thread_ids
+
+        mapM_ (liftIO . rmThreadFiles) to_del_board_thread_ids
 
 
     where
@@ -262,8 +269,8 @@ removeDeletedThreads settings board_elem new_catalog = do
         site = QE.site board_elem
         board = QE.board board_elem
 
-        rmThread :: Int64 -> IO ()
-        rmThread board_thread_id = do
+        rmThreadFiles :: Int64 -> IO ()
+        rmThreadFiles board_thread_id = do
             let path = Lib.makeThreadAttachmentFsPath settings site board board_thread_id
 
             exists <- doesDirectoryExist path

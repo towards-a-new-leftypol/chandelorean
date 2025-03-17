@@ -108,6 +108,7 @@ threadMain csmr_settings board_elem = do
         -- that connects.
 
         -- result is the most recent timestamp of all the posts we just saved
+        -- as well as the current board catalog
         return
             ( foldr max board_last_modified
                 $ map Post.creation_time posts

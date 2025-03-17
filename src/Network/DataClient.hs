@@ -23,6 +23,7 @@ module Network.DataClient
   , getFile
   , getLatestPostsPerBoard
   , updatePostIsMissingAttachments
+  , deleteThreads
   ) where
 
 import Control.Monad (forM)
@@ -119,6 +120,15 @@ getAllSites settings = get settings "/sites" >>= return . eitherDecodeResponse
 getThreads :: T.JSONSettings -> Int -> [ Int64 ] -> IO (Either HttpError [ Threads.Thread ])
 getThreads settings board_id board_thread_ids =
     get settings path >>= return . eitherDecodeResponse
+
+    where
+        path = "/threads?board_thread_id=in.(" ++ ids ++ ")&board_id=eq." ++ show board_id
+        ids :: String = intercalate "," $ map show board_thread_ids
+
+
+deleteThreads :: T.JSONSettings -> Int -> [ Int64 ] -> IO (Either HttpError ())
+deleteThreads settings board_id board_thread_ids =
+    delete settings path False >>= return . eitherDecodeResponse
 
     where
         path = "/threads?board_thread_id=in.(" ++ ids ++ ")&board_id=eq." ++ show board_id
