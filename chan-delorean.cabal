@@ -55,7 +55,7 @@ extra-doc-files:    CHANGELOG.md
 -- extra-source-files:
 
 common warnings
-    ghc-options: -Wall -rtsopts -threaded -dynamic -O2
+    ghc-options: -Wall -rtsopts -threaded -static -prof -fprof-auto
 
 executable chan-delorean
     -- Import common warning flags.
