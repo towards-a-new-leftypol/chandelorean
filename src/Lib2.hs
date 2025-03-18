@@ -241,14 +241,14 @@ removeDeletedThreads
     -> IOe ()
 removeDeletedThreads _ QE.BoardQueueElem { QE.last_catalog = Nothing } _ = return ()
 removeDeletedThreads settings board_elem new_catalog = do
-    let old_map :: Map.Map JSON.Thread Int = createIdxMap (fromJust $ QE.last_catalog board_elem)
-    let new_map :: Map.Map JSON.Thread Int = createIdxMap new_catalog
+    let old_map :: Map.Map Int64 Int = createIdxMap (map JSON.no $ fromJust $ QE.last_catalog board_elem)
+    let new_map :: Map.Map Int64 Int = createIdxMap (map JSON.no new_catalog)
 
     let gone = old_map `Map.difference` new_map
 
     let max_position = Map.size old_map `div` 2
     let to_delete = Map.filter (< max_position) gone
-    let to_del_board_thread_ids :: [ Int64 ] = map (JSON.no . fst) $ Map.toList to_delete
+    let to_del_board_thread_ids :: [ Int64 ] = map fst $ Map.toList to_delete
 
     unless (Map.null to_delete) $ do
         liftIO $ putStrLn $ "Deleting " ++ show (Map.size to_delete) ++ " threads: " ++ show to_del_board_thread_ids
