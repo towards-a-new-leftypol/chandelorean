@@ -75,45 +75,44 @@ threadMain csmr_settings board_elem = do
                 (\t -> Lib.epochToUTCTime (JS.last_modified t) > board_last_modified)
                 catalog_threads
 
-        -- if null changed_threads
-        -- then
-        --     return board_last_modified
-        -- else do
-
         let settings = mkJsonSettings csmr_settings site
 
-        threads <- Lib2.saveNewThreads settings (QE.board board_elem) changed_threads
+        if null changed_threads
+        then do
+            Lib2.removeDeletedThreads settings board_elem catalog_threads
+            return (board_last_modified, Just catalog_threads)
+        else do
+            threads <- Lib2.saveNewThreads settings (QE.board board_elem) changed_threads
 
-        web_posts :: [ (Thread.Thread, [ JSONPost.Post ]) ] <- mapM
-            (Lib2.httpGetPostsJSON site board)
-            threads
+            web_posts :: [ (Thread.Thread, [ JSONPost.Post ]) ] <- mapM
+                (Lib2.httpGetPostsJSON site board)
+                threads
 
-        posts <- Lib2.saveNewPosts settings web_posts
+            posts <- Lib2.saveNewPosts settings web_posts
 
-        let web_post_tuples
-                :: [ (Site.Site, Board.Board, Thread.Thread, JSONPost.Post) ]
-                = concatMap
-                    (\(t, ps) -> map (\p -> (site, board, t, p)) ps)
-                    web_posts
+            let web_post_tuples
+                    :: [ (Site.Site, Board.Board, Thread.Thread, JSONPost.Post) ]
+                    = concatMap
+                        (\(t, ps) -> map (\p -> (site, board, t, p)) ps)
+                        web_posts
 
-        let post_tuples = Lib.addPostsToTuples web_post_tuples posts
+            let post_tuples = Lib.addPostsToTuples web_post_tuples posts
 
-        Lib2.saveNewAttachments settings post_tuples
+            Lib2.saveNewAttachments settings post_tuples
 
-        Lib2.removeDeletedThreads settings board_elem catalog_threads
+            Lib2.removeDeletedThreads settings board_elem catalog_threads
 
+            -- So we also might want to build a service that http posts go to
+            -- to signal new posts, and to also broadcast this out to everyone
+            -- that connects.
 
-        -- So we also might want to build a service that http posts go to
-        -- to signal new posts, and to also broadcast this out to everyone
-        -- that connects.
-
-        -- result is the most recent timestamp of all the posts we just saved
-        -- as well as the current board catalog
-        return
-            ( foldr max board_last_modified
-                $ map Post.creation_time posts
-            , Just catalog_threads
-            )
+            -- result is the most recent timestamp of all the posts we just saved
+            -- as well as the current board catalog
+            return
+                ( foldr max board_last_modified
+                    $ map Post.creation_time posts
+                , Just catalog_threads
+                )
 
 
     case thread_results of
