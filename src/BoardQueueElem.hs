@@ -15,7 +15,7 @@ data BoardQueueElem = BoardQueueElem
 
 instance Show BoardQueueElem where
     show :: BoardQueueElem -> String
-    show b = "<BoardQueueElem " ++ (show $ site b) ++ "; " ++ (show $ board b) ++ ">"
+    show b = "<BoardQueueElem modified: " ++ show (last_modified b) ++ "; " ++ show (site b) ++ "; " ++ show (board b) ++ ">"
 
 instance Ord BoardQueueElem where
   (<=) :: BoardQueueElem -> BoardQueueElem -> Bool
