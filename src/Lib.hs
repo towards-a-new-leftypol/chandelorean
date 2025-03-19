@@ -313,9 +313,10 @@ fileToAttachment i post file =
 
       guessed_mime = getMimeType extension
 
-      dim = (JS.w file) >>= \w ->
-        ((JS.h file) >>= \h ->
-          Just $ At.Dimension w h)
+      dim = do
+          w <- JS.w file
+          h <- JS.h file
+          return $ At.Dimension w h
 
 
 getMimeType :: Text -> Text
@@ -397,8 +398,10 @@ parseAttachments path_prefix (site, board, thread, p, q) = filter notDeleted $
             case parseLegacyPaths board p path_prefix of
                 Nothing -> []
                 Just (paths, a) ->
-                    let
-                        dim = (JSONPost.w p) >>= \w -> ((JSONPost.h p) >>= \h -> Just $ At.Dimension w h)
+                    let dim = do
+                            w <- JSONPost.w p
+                            h <- JSONPost.h p
+                            return $ At.Dimension w h
                     in
                         [( site
                         , board
@@ -423,7 +426,6 @@ parseLegacyPaths board post path_prefix = do
     ext <- JSONPost.ext post
     filename <- JSONPost.filename post
     size <- JSONPost.fsize post
-    spoiler <- JSONPost.fsize post
 
     let
         board_pathpart = T.pack $ Boards.pathpart board
@@ -448,7 +450,7 @@ parseLegacyPaths board post path_prefix = do
             , At.original_filename = Just $ filename <> ext
             , At.file_size_bytes = size
             , At.board_filename = tim
-            , At.spoiler = spoiler > 0
+            , At.spoiler = maybe False (> 0) $ JSONPost.spoiler post
             , At.attachment_idx = 1
             }
 
