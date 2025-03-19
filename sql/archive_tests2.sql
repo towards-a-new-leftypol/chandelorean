@@ -286,7 +286,7 @@ SELECT DISTINCT ON (b.board_id)
        t.board_thread_id
   FROM boards b
   LEFT JOIN threads t ON t.board_id = b.board_id
-  LEFT JOIN posts   p ON p.thread_id = t.thread_id AND p.is_missing_attachments = false
+  LEFT JOIN posts   p ON p.thread_id = t.thread_id AND p.attachment_not_considered = false
   ORDER BY b.board_id, p.creation_time DESC;
 
 -- for Sync
@@ -312,7 +312,7 @@ RETURNS TABLE (
            t.board_thread_id
       FROM boards b
       LEFT JOIN threads t ON t.board_id = b.board_id
-      LEFT JOIN posts   p ON p.thread_id = t.thread_id AND p.is_missing_attachments = false
+      LEFT JOIN posts   p ON p.thread_id = t.thread_id AND p.attachment_not_considered = false
       ORDER BY b.board_id, p.creation_time DESC;
 $$ LANGUAGE sql STABLE;
 
@@ -322,7 +322,7 @@ GRANT EXECUTE ON FUNCTION get_latest_posts_per_board    TO chan_archiver;
 SELECT * FROM get_latest_posts_per_board();
 SELECT * FROM boards JOIN sites ON boards.site_id = sites.site_id WHERE sites.name = 'leftychan';
 
-ALTER TABLE posts ADD COLUMN is_missing_attachments boolean NOT NULL DEFAULT false;
+ALTER TABLE posts ADD COLUMN attachment_not_considered boolean NOT NULL DEFAULT false;
 
 SELECT * FROM posts WHERE board_post_id = 1044;
 
@@ -415,7 +415,7 @@ SELECT
     top_post.thread_id,
     top_post.board_thread_id
 FROM boards b
-LEFT OUTER JOIN LATERAL (
+LEFT JOIN LATERAL (
     SELECT
         t.thread_id,
         t.board_thread_id,
@@ -470,4 +470,4 @@ SELECT * FROM get_latest_posts_per_board();
 
 DROP TRIGGER trigger_update_post_body_search_index ON posts;
 
-VACUUM ANALYZE;
+ALTER TABLE posts RENAME COLUMN is_missing_attachments TO attachment_not_considered;

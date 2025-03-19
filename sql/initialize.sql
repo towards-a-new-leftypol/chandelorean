@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS posts
     , thread_id bigint NOT NULL
     , embed text
     , local_idx int NOT NULL -- this is the integer index of a post within a thread. OP is 1, the first reply is 2 etc
-    , is_missing_attachments boolean NOT NULL DEFAULT false
+    , attachment_not_considered boolean NOT NULL DEFAULT false
     , sage boolean NOT NULL DEFAULT false
     , CONSTRAINT unique_thread_board_id_constraint UNIQUE (thread_id, board_post_id)
     , CONSTRAINT thread_fk FOREIGN KEY (thread_id) REFERENCES threads (thread_id) ON DELETE CASCADE
