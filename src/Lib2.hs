@@ -32,8 +32,8 @@ import qualified Network.DataClient as Client
 import qualified SitesType  as Sites
 import qualified BoardsType as Boards
 import Common.Network.HttpClient (HttpError)
-import qualified JSONParsing as JSON
-import qualified JSONPost
+import qualified Network.Api.JSONParsing as JSON
+import qualified Network.Api.JSONPost as JSONPost
 import qualified ThreadType as Thread
 import qualified Common.PostsType as Posts
 import Common.Server.JSONSettings (JSONSettings)

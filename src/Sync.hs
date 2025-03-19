@@ -27,8 +27,8 @@ import qualified ThreadType as Thread
 import qualified BoardQueueElem as QE
 import qualified PriorityQueue as PQ
 import qualified Lib2
-import qualified JSONParsing as JS
-import qualified JSONPost
+import qualified Network.Api.JSONParsing as JS
+import qualified Network.Api.JSONPost as JSONPost
 import qualified Common.PostsType as Post
 
 

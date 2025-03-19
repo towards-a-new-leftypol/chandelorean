@@ -1,4 +1,4 @@
-module JSONPost
+module Network.Api.JSONPost
   ( Post (..)
   , PostWrapper (..)
   ) where
@@ -7,7 +7,7 @@ import Data.Text (Text)
 import Data.Int (Int64)
 import Data.Aeson (FromJSON)
 import GHC.Generics
-import qualified JSONCommonTypes as J
+import qualified Network.Api.JSONCommonTypes as J
 
 data Post = Post
     { no             :: Int64

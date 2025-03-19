@@ -62,9 +62,9 @@ import Control.Exception.Safe (tryAny, tryAsync, SomeException, displayException
 import qualified Data.ByteString.Lazy as B
 import Data.Aeson (FromJSON)
 
-import JSONParsing
-import qualified JSONCommonTypes as JS
-import qualified JSONPost
+import Network.Api.JSONParsing
+import qualified Network.Api.JSONCommonTypes as JS
+import qualified Network.Api.JSONPost as JSONPost
 import qualified Network.DataClient as Client
 import qualified SitesType  as Sites
 import qualified BoardsType as Boards

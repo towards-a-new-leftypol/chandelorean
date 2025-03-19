@@ -1,4 +1,4 @@
-module JSONParsing
+module Network.Api.JSONParsing
     ( Thread (..)
     , Catalog (..)
     , parseJSONCatalog
@@ -15,8 +15,8 @@ import qualified Data.ByteString.Lazy as B
 import Data.Aeson
 import Data.Int (Int64)
 
-import qualified JSONPost as Post
-import qualified JSONCommonTypes as J
+import qualified Network.Api.JSONPost as Post
+import qualified Network.Api.JSONCommonTypes as J
 
 data Thread = Thread
   { no            :: Int64

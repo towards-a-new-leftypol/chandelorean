@@ -1,4 +1,4 @@
-module JSONCommonTypes
+module Network.Api.JSONCommonTypes
   ( File (..)
   , Cyclical (..)
   ) where

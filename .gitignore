@@ -4,3 +4,5 @@ dist-newstyle/
 paths.txt
 temp_paths.txt
 temp_backfill_settings.json
+consumer_settings_backup.json
+asdf.hs
