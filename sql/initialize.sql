@@ -91,6 +91,7 @@ CREATE INDEX posts_thread_id_creation_time_idx ON posts (creation_time, thread_i
 CREATE INDEX posts_local_idx_idx     ON posts (local_idx);
 --CREATE INDEX posts_thread_id_board_post_id_idx ON posts (thread_id, board_post_id);
 CREATE INDEX posts_sage_idx          ON posts (sage);
+CREATE INDEX posts_attachment_not_considered_idx ON posts (attachment_not_considered);
 
 CREATE OR REPLACE FUNCTION update_post_body_search_index() RETURNS trigger AS $$
 BEGIN
@@ -104,10 +105,8 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- WARNING: maybe disable this before doing full table operations on the posts table,
--- like populating a new column, since this will cause it to rebuild the entire text search index
 CREATE TRIGGER trigger_update_post_body_search_index
-BEFORE INSERT OR UPDATE
+BEFORE INSERT
 ON posts
 FOR EACH ROW
 EXECUTE FUNCTION update_post_body_search_index();
