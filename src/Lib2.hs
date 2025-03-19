@@ -6,6 +6,7 @@ module Lib2
   , saveNewPosts
   , saveNewAttachments
   , removeDeletedThreads
+  , liftHttpIO
   ) where
 
 import Control.Monad.Trans.Except (ExceptT (..))
@@ -189,7 +190,7 @@ saveNewAttachments settings post_tuples = do
 
     new_attachments <- mapM (liftIO . Lib.computeAttachmentHash) attachment_details
 
-    posted_attachments <- liftHttpIO $ Client.postAttachments settings new_attachments
+    _ {- posted_attachments -} <- liftHttpIO $ Client.postAttachments settings new_attachments
 
     -- take the post ids from posted_attachments and update the is_missing_attachments flag.
     --      - there's the concern that we will have too many post ids to fit into a url
@@ -200,12 +201,6 @@ saveNewAttachments settings post_tuples = do
         mapM_
             (Lib.copyOrMoveFiles settings Lib.moveAttachmentAndThumb)
             attachment_details
-
-    let cleared_post_ids = map At.post_id posted_attachments
-
-    _ <- liftIO $ Client.updatePostIsMissingAttachments settings cleared_post_ids
-
-    return ()
 
 
 -- Downloads attachment and thumbnail to temporary files, and returns their paths.

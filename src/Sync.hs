@@ -99,6 +99,11 @@ threadMain csmr_settings board_elem = do
 
             Lib2.saveNewAttachments settings post_tuples
 
+            _ <- Lib2.liftHttpIO $
+                    Client.updatePostAttachmentNotConsidered
+                        settings
+                        (map Thread.thread_id threads)
+
             -- So we also might want to build a service that http posts go to
             -- to signal new posts, and to also broadcast this out to everyone
             -- that connects.

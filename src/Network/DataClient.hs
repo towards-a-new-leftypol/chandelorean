@@ -22,8 +22,8 @@ module Network.DataClient
   , getJSON
   , getFile
   , getLatestPostsPerBoard
-  , updatePostIsMissingAttachments
   , deleteThreads
+  , updatePostAttachmentNotConsidered
   ) where
 
 import Control.Monad (forM)
@@ -261,10 +261,10 @@ getLatestPostsPerBoard settings =
     post settings "/rpc/get_latest_posts_per_board" mempty False >>= return . eitherDecodeResponse
 
 
-updatePostIsMissingAttachments :: T.JSONSettings -> [ Int64 ] -> IO (Either HttpError ())
-updatePostIsMissingAttachments settings post_ids =
-    patch settings path payload False >>= return . eitherDecodeResponse
+updatePostAttachmentNotConsidered :: T.JSONSettings -> [ Int64 ] -> IO (Either HttpError LBS.ByteString )
+updatePostAttachmentNotConsidered settings post_ids =
+    patch settings path payload False
 
     where
-        path = "/posts?post_id=in.(" ++ intercalate "," (map show post_ids) ++ ")"
-        payload = encode $ object [ "is_missing_attachments" .= False ]
+        path = "/posts?thread_id=in.(" ++ intercalate "," (map show post_ids) ++ ")"
+        payload = encode $ object [ "attachment_not_considered" .= False ]

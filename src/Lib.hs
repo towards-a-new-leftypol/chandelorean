@@ -248,12 +248,6 @@ apiPostToPostKey thread post =
         }
 
 
-postHasAttachments :: JSONPost.Post -> Bool
-postHasAttachments JSONPost.Post { JSONPost.files = Just _ } = True
-postHasAttachments JSONPost.Post { JSONPost.filename = Just _ } = True
-postHasAttachments _ = False
-
-
 -- Convert Post to DbPost
 apiPostToArchivePost :: Int -> Threads.Thread -> JSONPost.Post -> Posts.Post
 apiPostToArchivePost local_idx thread post =
@@ -268,13 +262,7 @@ apiPostToArchivePost local_idx thread post =
     , thread_id       = Threads.thread_id thread
     , embed           = JSONPost.embed post
     , local_idx       = local_idx
-      -- TODO:
-      -- rename this to "attachment_not_considered
-      -- default this to true
-      -- restore database from earlier point
-      -- check what happens when we abort during the attachment download phase
-      -- add flags
-    , is_missing_attachments = postHasAttachments post -- initially posts with attachments aren't complete, keep the db state consistent.
+    , attachment_not_considered = True
     , sage            = emailToSage $ JSONPost.email post
     }
 
