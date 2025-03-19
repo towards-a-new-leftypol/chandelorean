@@ -8,6 +8,7 @@ import Data.Int (Int64)
 import Data.Aeson (FromJSON)
 import GHC.Generics
 import qualified Network.Api.JSONCommonTypes as J
+import qualified Network.Api.JSONExtraFile as F
 
 data Post = Post
     { no             :: Int64
@@ -24,7 +25,7 @@ data Post = Post
     , last_modified  :: Int
     , embed          :: Maybe Text
     -- , board          :: Text
-    , files          :: Maybe [J.File]
+    , files          :: Maybe [ J.File ]
     , resto          :: Int
     , unique_ips     :: Maybe Int
 
@@ -36,6 +37,7 @@ data Post = Post
     , tim            :: Maybe Text
     , fsize          :: Maybe Int
     , spoiler        :: Maybe Int
+    , extra_files    :: Maybe [ F.ExtraFile ]
     } deriving (Show, Generic)
 
 instance FromJSON Post

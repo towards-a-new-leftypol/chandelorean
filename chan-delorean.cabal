@@ -70,6 +70,7 @@ executable chan-delorean
                       Network.Api.JSONParsing
                       Network.Api.JSONPost
                       Network.Api.JSONCommonTypes
+                      Network.Api.JSONExtraFile
                       SitesType
                       BoardsType
                       ThreadType
@@ -126,6 +127,7 @@ executable chan-delorean-consoomer
                       Network.Api.JSONParsing
                       Network.Api.JSONPost
                       Network.Api.JSONCommonTypes
+                      Network.Api.JSONExtraFile
                       SitesType
                       BoardsType
                       ThreadType
