@@ -219,13 +219,6 @@ postPosts settings posts =
         payload = encode posts
 
 
--- Old type:
--- postPosts
---     :: T.JSONSettings
---     -> [ Posts.Post ]
---     -> IO (Either HttpError [ PostId ])
-
-
 eitherDecodeResponse :: (FromJSON a) => Either HttpError LBS.ByteString -> Either HttpError a
 eitherDecodeResponse (Left err) = Left err
 eitherDecodeResponse (Right bs) =
@@ -266,5 +259,5 @@ updatePostAttachmentNotConsidered settings post_ids =
     patch settings path payload False
 
     where
-        path = "/posts?thread_id=in.(" ++ intercalate "," (map show post_ids) ++ ")"
+        path = "/posts?thread_id=in.(" ++ intercalate "," (map show post_ids) ++ ")&attachment_not_considered=eq.true"
         payload = encode $ object [ "attachment_not_considered" .= False ]
