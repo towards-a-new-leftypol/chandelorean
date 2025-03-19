@@ -77,10 +77,9 @@ threadMain csmr_settings board_elem = do
 
         let settings = mkJsonSettings csmr_settings site
 
-        if null changed_threads
-        then do
-            Lib2.removeDeletedThreads settings board_elem catalog_threads
-            return (board_last_modified, Just catalog_threads)
+        last_modified <- if null changed_threads
+        then
+            return board_last_modified
         else do
             threads <- Lib2.saveNewThreads settings (QE.board board_elem) changed_threads
 
@@ -100,20 +99,15 @@ threadMain csmr_settings board_elem = do
 
             Lib2.saveNewAttachments settings post_tuples
 
-            Lib2.removeDeletedThreads settings board_elem catalog_threads
-
             -- So we also might want to build a service that http posts go to
             -- to signal new posts, and to also broadcast this out to everyone
             -- that connects.
 
             -- result is the most recent timestamp of all the posts we just saved
-            -- as well as the current board catalog
-            return
-                ( foldr max board_last_modified
-                    $ map Post.creation_time posts
-                , Just catalog_threads
-                )
+            return $ foldr max board_last_modified $ map Post.creation_time posts
 
+        Lib2.removeDeletedThreads settings board_elem catalog_threads
+        return (last_modified, Just catalog_threads)
 
     case thread_results of
         Left err -> do

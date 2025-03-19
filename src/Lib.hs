@@ -268,6 +268,12 @@ apiPostToArchivePost local_idx thread post =
     , thread_id       = Threads.thread_id thread
     , embed           = JSONPost.embed post
     , local_idx       = local_idx
+      -- TODO:
+      -- rename this to "attachment_not_considered
+      -- default this to true
+      -- restore database from earlier point
+      -- check what happens when we abort during the attachment download phase
+      -- add flags
     , is_missing_attachments = postHasAttachments post -- initially posts with attachments aren't complete, keep the db state consistent.
     , sage            = emailToSage $ JSONPost.email post
     }

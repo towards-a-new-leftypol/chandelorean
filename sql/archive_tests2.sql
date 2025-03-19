@@ -385,7 +385,7 @@ ALTER TABLE posts ADD COLUMN sage boolean NOT NULL DEFAULT false;
 
 UPDATE posts SET sage = (COALESCE(email, '') = 'sage');
 
-UPDATE posts SET sage = true WHERE COALESCE(email, '') = 'Sage';
+UPDATE posts SET sage = true WHERE LOWER(COALESCE(email, '')) = 'sage';
 
 -- Create an index on the 'sage' column
 CREATE INDEX posts_sage_idx ON posts (sage);
@@ -466,4 +466,8 @@ RETURNS TABLE (
     ) AS top_post ON true;
 $$ LANGUAGE sql STABLE;
 
-SELECT * FROM get_latest_posts_per_board();  
+SELECT * FROM get_latest_posts_per_board();
+
+DROP TRIGGER trigger_update_post_body_search_index ON posts;
+
+VACUUM ANALYZE;
