@@ -101,6 +101,8 @@ BEGIN
             setweight(to_tsvector('english', COALESCE(NEW.name, '')), 'B') ||
             setweight(to_tsvector('english', COALESCE(NEW.body, '')), 'C')
         );
+    -- TODO: what about filenames that aren't just a timestamp?
+    --       also maybe check that the name isn't Anonymous
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
@@ -367,7 +369,7 @@ RETURNS SETOF catalog_grid_result AS $$
                 attachments.board_filename as file_name,
                 attachments.file_extension,
                 attachments.thumb_extension as file_thumb_extension,
-                ts_rank(p.body_search_index, query.query)
+                ts_rank(p.body_search_index, query.query) -- TODO: try ts_rank_cd https://www.postgresql.org/docs/current/textsearch-controls.html#TEXTSEARCH-RANKING
                     / (1 + EXTRACT(EPOCH FROM AGE(p.creation_time)) / (3600 * 24)) AS relevance
                 FROM posts p
                 JOIN threads ON threads.thread_id = p.thread_id

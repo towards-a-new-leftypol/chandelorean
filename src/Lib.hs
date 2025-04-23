@@ -65,6 +65,7 @@ import Data.Aeson (FromJSON)
 import Network.Api.JSONParsing
 import qualified Network.Api.JSONCommonTypes as JS
 import qualified Network.Api.JSONPost as JSONPost
+import qualified Network.Api.JSONExtraFile as EF
 import qualified Network.DataClient as Client
 import qualified SitesType  as Sites
 import qualified BoardsType as Boards
@@ -403,7 +404,7 @@ parseAttachments path_prefix (site, board, thread, p, q) = filter notDeleted $
                             h <- JSONPost.h p
                             return $ At.Dimension w h
                     in
-                        [( site
+                        ( site
                         , board
                         , thread
                         , q
@@ -413,7 +414,10 @@ parseAttachments path_prefix (site, board, thread, p, q) = filter notDeleted $
                             , At.resolution = dim
                             , At.post_id = fromJust $ Posts.post_id q
                             }
-                        )]
+                        ) : (
+                                (map $ (\(x, y) -> (site, board, thread, q, x, y)) . (parseExtraFiles board q p path_prefix))
+                                (zip [2..] $ maybe [] id $ JSONPost.extra_files p)
+                            )
 
     where
         notDeleted :: (a, b, c, d, At.Paths, At.Attachment) -> Bool
@@ -456,6 +460,52 @@ parseLegacyPaths board post path_prefix = do
 
     return (p, attachment)
 
+
+parseExtraFiles :: Boards.Board -> Posts.Post -> JSONPost.Post -> String -> (Int, EF.ExtraFile) -> (At.Paths, At.Attachment)
+parseExtraFiles board post json_post path_prefix (idx, extra_file) =
+    let
+        tim      = EF.tim extra_file
+        ext      = EF.ext extra_file
+        filename = EF.filename extra_file
+        size     = EF.fsize extra_file
+
+        board_pathpart = T.pack $ Boards.pathpart board
+        file_path = path_prefix </> (T.unpack $ board_pathpart <> "/src/" <> tim <> ext)
+        thumb_extension = "png"
+        thumbnail_path = path_prefix </> (T.unpack $ board_pathpart <> "/thumb/" <> tim <> "." <> thumb_extension)
+
+        p = At.Paths file_path (Just thumbnail_path)
+
+        mime = getMimeType ext
+
+        dim = do
+            w <- EF.w extra_file
+            h <- EF.h extra_file
+            return $ At.Dimension w h
+
+        attachment = At.Attachment
+            { At.mimetype = mime
+            , At.creation_time = Posts.creation_time post
+            , At.sha256_hash = undefined
+            , At.phash = Nothing
+            , At.illegal = False
+            , At.post_id = fromJust $ Posts.post_id post
+            , At.resolution = dim
+            , At.file_extension = Just $ T.drop 1 ext
+            , At.thumb_extension = Just thumb_extension
+            , At.original_filename = Just $ filename <> ext
+            , At.file_size_bytes = size
+            , At.board_filename = tim
+            , At.spoiler = maybe False (> 0) $ JSONPost.spoiler json_post
+            , At.attachment_idx = idx
+            }
+
+    in
+        (p, attachment)
+
+
+maxHashTimeout :: Int
+maxHashTimeout = 1_000_000 -- one second in microseconds
 
 computeAttachmentHash :: Details -> IO At.Attachment
 computeAttachmentHash (_, _, _, _, p, q) = do
