@@ -58,7 +58,7 @@ import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8)
 import Network.Mime (defaultMimeLookup)
 import PerceptualHash (fileHash)
-import Control.Exception.Safe (tryAny, tryAsync, SomeException, displayException)
+import Control.Exception.Safe (tryAsync, SomeException, displayException)
 import qualified Data.ByteString.Lazy as B
 import Data.Aeson (FromJSON)
 
@@ -504,9 +504,6 @@ parseExtraFiles board post json_post path_prefix (idx, extra_file) =
         (p, attachment)
 
 
-maxHashTimeout :: Int
-maxHashTimeout = 1_000_000 -- one second in microseconds
-
 computeAttachmentHash :: Details -> IO At.Attachment
 computeAttachmentHash (_, _, _, _, p, q) = do
     let f = At.file_path p
@@ -520,36 +517,31 @@ computeAttachmentHash (_, _, _, _, p, q) = do
     phash :: Maybe Int64 <-
         case (At.mimetype q) `Set.member` phash_mimetypes of
             True -> do
-                putStrLn $ "Running tryAny $ fileHash f " ++ f
-                either_exception <- tryAny $ fileHash f
-                putStrLn $ "Done tryAny $ fileHash f " ++ f
+                putStrLn $ "Running fileHash f " ++ f
+                either_phash <- fileHash f
+                putStrLn $ "Done fileHash f " ++ f
 
-                case either_exception of
-                    Left (err :: SomeException) -> do
-                        putStrLn $ "Error while computing the perceptual hash of file " ++ f ++ " " ++ displayException err
+                case either_phash of
+                    Left _ -> do
+                        putStrLn $ "Failed to compute phash for file " ++ (unpack sha256_sum)
                         return Nothing
-                    Right either_phash ->
-                        case either_phash of
-                            Left err_str -> do
-                                putStrLn $ "Failed to compute phash for file " ++ (unpack sha256_sum) ++ " " ++ f ++ " " ++ err_str
+                    Right phash_w -> do
+                        result <- tryAsync $ do
+                            let phash_i = Words.wordToSignedInt64 phash_w
+
+                            if phash_i == 0 then do
+                                putStrLn $ "phash is 0 for file " ++ (unpack sha256_sum) ++ " " ++ f
                                 return Nothing
-                            Right phash_w -> do
-                                result <- tryAsync $ do
-                                    let phash_i = Words.wordToSignedInt64 phash_w
+                            else do
+                                putStrLn $ "phash: " ++ show phash_w
+                                return $ Just $ Words.wordToSignedInt64 phash_w
 
-                                    if phash_i == 0 then do
-                                        putStrLn $ "phash is 0 for file " ++ (unpack sha256_sum) ++ " " ++ f
-                                        return Nothing
-                                    else do
-                                        putStrLn $ "phash: " ++ show phash_w
-                                        return $ Just $ Words.wordToSignedInt64 phash_w
+                        case result of
+                            Left (err2 :: SomeException) -> do
+                                putStrLn $ "Error handling phash result! " ++ displayException err2
+                                return Nothing
 
-                                case result of
-                                    Left (err2 :: SomeException) -> do
-                                        putStrLn $ "Error handling phash result! " ++ displayException err2
-                                        return Nothing
-
-                                    Right w -> return w
+                            Right w -> return w
 
             False -> return Nothing
 
