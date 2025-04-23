@@ -523,6 +523,7 @@ computeAttachmentHash (_, _, _, _, p, q) = do
 
                 case either_phash of
                     Left _ -> do
+                        -- there was a bug in evauating the error value here, program would freeze. so no error message from fileHash for us.
                         putStrLn $ "Failed to compute phash for file " ++ (unpack sha256_sum)
                         return Nothing
                     Right phash_w -> do
