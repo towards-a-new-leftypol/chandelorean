@@ -129,7 +129,8 @@ saveNewPosts
 saveNewPosts settings thread_posts = do
     existing_posts <- liftHttpIO $ Client.getPosts settings post_ids
 
-    thread_max_local_idx <- liftHttpIO $ Client.getThreadMaxLocalIdx settings thread_ids
+    thread_max_local_idx <- liftHttpIO $
+            Client.getThreadMaxLocalIdx settings thread_ids
 
     let existing_set :: Set.Set (Int64, Int64) =
             Set.fromList
@@ -142,7 +143,8 @@ saveNewPosts settings thread_posts = do
 
     let local_idx :: Map.Map Int64 Int = Map.fromList thread_max_local_idx
 
-    let posts_to_insert :: [ Posts.Post ] = fst $ foldl' Lib.localIndexFoldf ([], local_idx) tuples_to_insert
+    let posts_to_insert :: [ Posts.Post ] =
+            fst $ foldl' Lib.localIndexFoldf ([], local_idx) tuples_to_insert
 
     new_posts <- liftHttpIO $ Client.postPosts settings posts_to_insert
 
@@ -160,8 +162,14 @@ saveNewPosts settings thread_posts = do
         thread_ids :: [ Int64 ]
         thread_ids = map (Thread.thread_id . fst) thread_posts
 
-        newPosts :: [(Thread.Thread, JSONPost.Post, Client.PostId)] -> Set.Set (Int64, Int64) -> [(Thread.Thread, JSONPost.Post, Client.PostId)]
-        newPosts xs existing_set = filter (\(_, _, c) -> Set.notMember (Client.thread_id c, Client.board_post_id c) existing_set) xs
+        newPosts
+                :: [(Thread.Thread, JSONPost.Post, Client.PostId)]
+                -> Set.Set (Int64, Int64)
+                -> [(Thread.Thread, JSONPost.Post, Client.PostId)]
+        newPosts xs existing_set = filter (
+                \(_, _, c) ->
+                        Set.notMember (Client.thread_id c, Client.board_post_id c) existing_set
+                ) xs
 
 
 saveNewAttachments
