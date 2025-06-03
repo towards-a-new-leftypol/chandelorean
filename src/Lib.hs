@@ -256,12 +256,12 @@ apiPostToArchivePost local_idx thread post =
     { post_id         = Nothing
     , board_post_id   = JSONPost.no post
     , creation_time   = posixSecondsToUTCTime (realToFrac $ JSONPost.time post)
-    , body            = JSONPost.com post
-    , name            = JSONPost.name post
-    , subject         = JSONPost.sub post
-    , email           = JSONPost.email post
+    , body            = sanitize <$> JSONPost.com post
+    , name            = sanitize <$> JSONPost.name post
+    , subject         = sanitize <$> JSONPost.sub post
+    , email           = sanitize <$> JSONPost.email post
     , thread_id       = Threads.thread_id thread
-    , embed           = JSONPost.embed post
+    , embed           = sanitize <$> JSONPost.embed post
     , local_idx       = local_idx
     , attachment_not_considered = True
     , sage            = emailToSage $ JSONPost.email post
@@ -271,6 +271,9 @@ apiPostToArchivePost local_idx thread post =
         emailToSage :: Maybe Text -> Bool
         emailToSage Nothing  = False
         emailToSage (Just t) = toLower t == "sage"
+
+        sanitize :: Text -> Text
+        sanitize = T.filter (/= '\x00')
 
 
 addPostsToTuples
