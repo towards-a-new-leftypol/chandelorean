@@ -255,7 +255,7 @@ apiPostToArchivePost local_idx thread post =
     Posts.Post
     { post_id         = Nothing
     , board_post_id   = JSONPost.no post
-    , creation_time   = posixSecondsToUTCTime (realToFrac $ JSONPost.time post)
+    , creation_time   = epochToUTCTime $ JSONPost.time post
     , body            = sanitize <$> JSONPost.com post
     , name            = sanitize <$> JSONPost.name post
     , subject         = sanitize <$> JSONPost.sub post

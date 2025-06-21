@@ -592,7 +592,7 @@ SELECT * FROM posts WHERE body_search_index @@ websearch_to_tsquery('english', '
 
 
 WITH query AS (
-  SELECT websearch_to_tsquery('english', 'sound cringe irl') AS query
+  SELECT websearch_to_tsquery('english', 'gochu fam') AS query
 )
 SELECT p.*, pathpart, board_thread_id,
 	ts_rank(p.body_search_index, query.query)

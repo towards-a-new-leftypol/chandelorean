@@ -471,3 +471,27 @@ SELECT * FROM get_latest_posts_per_board();
 DROP TRIGGER trigger_update_post_body_search_index ON posts;
 
 ALTER TABLE posts RENAME COLUMN is_missing_attachments TO attachment_not_considered;
+
+SELECT * FROM posts ORDER BY creation_time ASC LIMIT 100;
+
+SELECT DISTINCT ON (b.board_id)
+       b.board_id,
+       b.site_id,
+       b.pathpart,
+       p.post_id,
+       p.board_post_id,
+       p.creation_time,
+       t.thread_id,
+       t.board_thread_id
+  FROM boards b
+  LEFT JOIN threads t ON t.board_id = b.board_id
+  LEFT JOIN posts   p ON p.thread_id = t.thread_id AND p.attachment_not_considered = false
+  ORDER BY b.board_id, p.creation_time DESC;
+
+
+DELETE FROM threads WHERE thread_id IN
+(
+	SELECT threads.thread_id FROM threads
+	LEFT JOIN posts ON posts.thread_id = threads.thread_id AND posts.attachment_not_considered = false
+	WHERE posts.thread_id IS NULL
+);
