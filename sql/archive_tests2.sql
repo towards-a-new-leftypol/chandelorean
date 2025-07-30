@@ -132,22 +132,37 @@ JOIN threads ON op_posts.thread_id = threads.thread_id
 JOIN boards ON threads.board_id = boards.board_id
 JOIN sites ON sites.site_id = boards.site_id;
 
+DROP TYPE catalog_grid_result;
+DROP FUNCTION search_posts;
+DROP FUNCTION fetch_catalog;
+
+CREATE TYPE catalog_grid_result AS
+    (
+        -- post_count bigint,
+        estimated_post_count bigint,
+        post_id bigint,
+        board_post_id bigint,
+        creation_time timestamptz,
+        bump_time timestamptz,
+        body text,
+        subject text,
+        thread_id bigint,
+        embed text,
+        board_thread_id bigint,
+        pathpart text,
+        site_name text,
+        site_id int,
+        file_mimetype text,
+        file_illegal boolean,
+        file_resolution dimension,
+        file_name text,
+        file_extension text,
+        file_thumb_extension text
+    );
+
 
 CREATE OR REPLACE FUNCTION fetch_catalog(max_time timestamptz, max_row_read int DEFAULT 10000)
-RETURNS TABLE (
-    post_count bigint,
-    estimated_post_count bigint,
-    post_id bigint,
-    board_post_id bigint,
-    creation_time timestamptz,
-    bump_time timestamptz,
-    body text,
-    subject text,
-    thread_id bigint,
-    board_thread_id bigint,
-    pathpart text,
-    name text
-) AS $$
+RETURNS SETOF catalog_grid_result AS $$
     WITH
         top AS
         (
@@ -156,44 +171,97 @@ RETURNS TABLE (
         tall_posts AS
         (
             SELECT
-                top.post_count as estimated_post_count,
+                top.post_count AS estimated_post_count,
                 posts.post_id,
                 posts.board_post_id,
                 posts.creation_time,
                 top.bump_time,
                 posts.body,
                 posts.subject,
-                posts.thread_id
+                posts.thread_id,
+                posts.embed
             FROM top
-            JOIN posts ON top.thread_id = posts.thread_id
+            JOIN posts ON top.thread_id = posts.thread_id AND posts.local_idx = 1
             WHERE creation_time < max_time
-        ),
-        op_posts AS
-        (
-            SELECT DISTINCT ON (t.thread_id)
-                *
-            FROM tall_posts t
-            ORDER BY t.thread_id, t.board_post_id
-        ),
-        post_counts AS
-        (
-            SELECT thread_id, count(*) as post_count FROM
-            tall_posts
-            GROUP BY thread_id
         )
     SELECT
-        post_counts.post_count,
-        op_posts.*,
-        threads.board_thread_id,
+        -- post_counts.post_count,
+        tall_posts.*,
+        threads.board_thread_id, -- this should be part of the url path when creating links, not thread_id (that's internal)
         boards.pathpart,
-        sites."name"
-    FROM op_posts
-    JOIN post_counts ON op_posts.thread_id = post_counts.thread_id
-    JOIN threads ON op_posts.thread_id = threads.thread_id
+        sites."name",
+        sites.site_id,
+        attachments.mimetype AS file_mimetype,
+        attachments.illegal AS file_illegal,
+        attachments.resolution AS file_resolution,
+        attachments.board_filename AS file_name,
+        attachments.file_extension,
+        attachments.thumb_extension AS file_thumb_extension
+    FROM tall_posts
+    JOIN threads ON tall_posts.thread_id = threads.thread_id
     JOIN boards ON threads.board_id = boards.board_id
     JOIN sites ON sites.site_id = boards.site_id
+    LEFT OUTER JOIN attachments ON attachments.post_id = tall_posts.post_id AND attachments.attachment_idx = 1
     ORDER BY bump_time DESC;
-$$ LANGUAGE sql;
+$$ LANGUAGE sql STABLE;
+
+CREATE OR REPLACE FUNCTION search_posts(search_text text, max_rows integer DEFAULT 1000)
+RETURNS SETOF catalog_grid_result AS $$
+    WITH
+        query AS (
+          SELECT websearch_to_tsquery('english', search_text) AS query
+        ),
+        result_set AS (
+            SELECT
+                p.*,
+                threads.board_thread_id,
+                pathpart,
+                sites.name AS site_name,
+                sites.site_id AS site_id,
+                attachments.mimetype as file_mimetype,
+                attachments.illegal as file_illegal,
+                attachments.resolution as file_resolution,
+                attachments.board_filename as file_name,
+                attachments.file_extension,
+                attachments.thumb_extension as file_thumb_extension,
+                ts_rank(p.body_search_index, query.query) -- TODO: try ts_rank_cd https://www.postgresql.org/docs/current/textsearch-controls.html#TEXTSEARCH-RANKING
+                    / (1 + EXTRACT(EPOCH FROM AGE(p.creation_time)) / (3600 * 24)) AS relevance
+                FROM posts p
+                JOIN threads ON threads.thread_id = p.thread_id
+                JOIN boards ON boards.board_id = threads.board_id
+                JOIN sites ON sites.site_id = boards.site_id
+                LEFT OUTER JOIN attachments
+                    ON attachments.post_id = p.post_id
+                    AND attachments.attachment_idx = 1
+                , query
+            WHERE p.body_search_index @@ query.query
+            LIMIT max_rows
+        )
+    SELECT
+        0 AS estimated_post_count,
+        result_set.post_id,
+        result_set.board_post_id,
+        result_set.creation_time,
+        result_set.creation_time AS bump_time,
+        result_set.body,
+        result_set.subject,
+        result_set.thread_id,
+        result_set.embed,
+        result_set.board_thread_id,
+        result_set.pathpart,
+        result_set.site_name,
+        result_set.site_id,
+        result_set.file_mimetype,
+        result_set.file_illegal,
+        result_set.file_resolution,
+        result_set.file_name,
+        result_set.file_extension,
+        result_set.file_thumb_extension
+    FROM result_set
+    ORDER BY result_set.relevance DESC;
+$$ LANGUAGE sql STABLE;
+
+
 
 SELECT * FROM fetch_catalog(NOW() - INTERVAL '1y', 1001);
 
@@ -494,4 +562,8 @@ DELETE FROM threads WHERE thread_id IN
 	SELECT threads.thread_id FROM threads
 	LEFT JOIN posts ON posts.thread_id = threads.thread_id AND posts.attachment_not_considered = false
 	WHERE posts.thread_id IS NULL
-);
+); .
+
+SELECT * FROM threads
+LEFT JOIN posts ON posts.thread_id = threads.thread_id AND posts.attachment_not_considered = false
+WHERE posts.thread_id IS NULL;
