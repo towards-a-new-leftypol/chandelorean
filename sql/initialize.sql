@@ -21,7 +21,7 @@ DROP TYPE IF EXISTS post_key CASCADE;
 DROP FUNCTION IF EXISTS update_post_body_search_index;
 DROP FUNCTION IF EXISTS fetch_top_threads;
 DROP FUNCTION IF EXISTS fetch_catalog;
-DROP FUNCTION IF EXISTS get_latest_posts_per_board;
+DROP FUNCTION IF EXISTS search_posts;
 
 
 -- It won't let us drop roles otherwise and the IFs are to keep this script idempotent.
@@ -29,9 +29,11 @@ DO
 $$BEGIN
 IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'chan_archiver') THEN
     EXECUTE 'REVOKE ALL PRIVILEGES ON DATABASE chan_archives FROM chan_archiver';
+    DROP OWNED BY chan_archiver;
 END IF;
 IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'chan_archive_anon') THEN
     EXECUTE 'REVOKE ALL PRIVILEGES ON DATABASE chan_archives FROM chan_archive_anon';
+    DROP OWNED BY chan_archive_anon;
 END IF;
 END$$;
 
@@ -67,7 +69,7 @@ CREATE INDEX threads_board_thread_id_idx ON threads (board_thread_id);
 
 CREATE TABLE IF NOT EXISTS posts
     ( post_id bigserial primary key
-    , board_post_id bigint NOT NULL -- what the id of this post was on the website (should match old mysql post id)
+    , board_post_id bigint NOT NULL
     , creation_time timestamp with time zone NOT NULL
     , body text
     , subject text
@@ -76,9 +78,7 @@ CREATE TABLE IF NOT EXISTS posts
     , body_search_index tsvector
     , thread_id bigint NOT NULL
     , embed text
-    , local_idx int NOT NULL -- this is the integer index of a post within a thread. OP is 1, the first reply is 2 etc
-    , attachment_not_considered boolean NOT NULL DEFAULT false
-    , sage boolean NOT NULL DEFAULT false
+    , local_idx int NOT NULL
     , CONSTRAINT unique_thread_board_id_constraint UNIQUE (thread_id, board_post_id)
     , CONSTRAINT thread_fk FOREIGN KEY (thread_id) REFERENCES threads (thread_id) ON DELETE CASCADE
     , CONSTRAINT unique_thread_local_idx UNIQUE (thread_id, local_idx)
@@ -90,8 +90,6 @@ CREATE INDEX posts_board_post_id_idx ON posts (board_post_id);
 CREATE INDEX posts_thread_id_creation_time_idx ON posts (creation_time, thread_id);
 CREATE INDEX posts_local_idx_idx     ON posts (local_idx);
 --CREATE INDEX posts_thread_id_board_post_id_idx ON posts (thread_id, board_post_id);
-CREATE INDEX posts_sage_idx          ON posts (sage);
-CREATE INDEX posts_attachment_not_considered_idx ON posts (attachment_not_considered);
 
 CREATE OR REPLACE FUNCTION update_post_body_search_index() RETURNS trigger AS $$
 BEGIN
@@ -101,14 +99,14 @@ BEGIN
             setweight(to_tsvector('english', COALESCE(NEW.name, '')), 'B') ||
             setweight(to_tsvector('english', COALESCE(NEW.body, '')), 'C')
         );
-    -- TODO: what about filenames that aren't just a timestamp?
-    --       also maybe check that the name isn't Anonymous
     RETURN NEW;
 END;
 $$ LANGUAGE plpgsql;
 
+-- WARNING: maybe disable this before doing full table operations on the posts table,
+-- like populating a new column, since this will cause it to rebuild the entire text search index
 CREATE TRIGGER trigger_update_post_body_search_index
-BEFORE INSERT
+BEFORE INSERT OR UPDATE
 ON posts
 FOR EACH ROW
 EXECUTE FUNCTION update_post_body_search_index();
@@ -227,7 +225,7 @@ CREATE OR REPLACE FUNCTION fetch_top_threads(
     lookback INT DEFAULT 10000
 )
 RETURNS TABLE(bump_time TIMESTAMPTZ, post_count BIGINT, thread_id BIGINT, where_to_leave_off TIMESTAMPTZ)
-LANGUAGE sql STABLE
+LANGUAGE sql
 AS $$
     SELECT 
         max(creation_time) as bump_time, 
@@ -262,59 +260,13 @@ CREATE TYPE catalog_grid_result AS
         board_thread_id bigint,
         pathpart text,
         site_name text,
-        site_id int,
         file_mimetype text,
         file_illegal boolean,
-        file_resolution dimension,
+        -- file_resolution dimension,
         file_name text,
         file_extension text,
         file_thumb_extension text
     );
-
-
-CREATE OR REPLACE FUNCTION fetch_catalog(max_time timestamptz, max_row_read int DEFAULT 10000)
-RETURNS SETOF catalog_grid_result AS $$
-    WITH
-        top AS
-        (
-            SELECT * FROM fetch_top_threads(max_time, max_row_read) AS top
-        ),
-        tall_posts AS
-        (
-            SELECT
-                top.post_count AS estimated_post_count,
-                posts.post_id,
-                posts.board_post_id,
-                posts.creation_time,
-                top.bump_time,
-                posts.body,
-                posts.subject,
-                posts.thread_id,
-                posts.embed
-            FROM top
-            JOIN posts ON top.thread_id = posts.thread_id AND posts.local_idx = 1
-            WHERE creation_time < max_time
-        )
-    SELECT
-        -- post_counts.post_count,
-        tall_posts.*,
-        threads.board_thread_id, -- this should be part of the url path when creating links, not thread_id (that's internal)
-        boards.pathpart,
-        sites."name",
-        sites.site_id,
-        attachments.mimetype AS file_mimetype,
-        attachments.illegal AS file_illegal,
-        attachments.resolution AS file_resolution,
-        attachments.board_filename AS file_name,
-        attachments.file_extension,
-        attachments.thumb_extension AS file_thumb_extension
-    FROM tall_posts
-    JOIN threads ON tall_posts.thread_id = threads.thread_id
-    JOIN boards ON threads.board_id = boards.board_id
-    JOIN sites ON sites.site_id = boards.site_id
-    LEFT OUTER JOIN attachments ON attachments.post_id = tall_posts.post_id AND attachments.attachment_idx = 1
-    ORDER BY bump_time DESC;
-$$ LANGUAGE sql STABLE;
 
 
 -- Function: search_posts
@@ -364,14 +316,13 @@ RETURNS SETOF catalog_grid_result AS $$
                 threads.board_thread_id,
                 pathpart,
                 sites.name AS site_name,
-                sites.site_id AS site_id,
                 attachments.mimetype as file_mimetype,
                 attachments.illegal as file_illegal,
-                attachments.resolution as file_resolution,
+                -- attachments.resolution as file_resolution,
                 attachments.board_filename as file_name,
                 attachments.file_extension,
                 attachments.thumb_extension as file_thumb_extension,
-                ts_rank(p.body_search_index, query.query) -- TODO: try ts_rank_cd https://www.postgresql.org/docs/current/textsearch-controls.html#TEXTSEARCH-RANKING
+                ts_rank(p.body_search_index, query.query)
                     / (1 + EXTRACT(EPOCH FROM AGE(p.creation_time)) / (3600 * 24)) AS relevance
                 FROM posts p
                 JOIN threads ON threads.thread_id = p.thread_id
@@ -397,10 +348,8 @@ RETURNS SETOF catalog_grid_result AS $$
         result_set.board_thread_id,
         result_set.pathpart,
         result_set.site_name,
-        result_set.site_id,
         result_set.file_mimetype,
         result_set.file_illegal,
-        result_set.file_resolution,
         result_set.file_name,
         result_set.file_extension,
         result_set.file_thumb_extension
@@ -409,32 +358,8 @@ RETURNS SETOF catalog_grid_result AS $$
 $$ LANGUAGE sql STABLE;
 
 
--- for Sync
-CREATE OR REPLACE FUNCTION get_latest_posts_per_board()
-RETURNS TABLE (
-    board_id int,
-    site_id int,
-    pathpart text,
-    post_id bigint,
-    board_post_id bigint,
-    creation_time timestamp with time zone,
-    thread_id bigint,
-    board_thread_id bigint
-) AS $$
-    SELECT DISTINCT ON (b.board_id)
-           b.board_id,
-           b.site_id,
-           b.pathpart,
-           p.post_id,
-           p.board_post_id,
-           p.creation_time,
-           t.thread_id,
-           t.board_thread_id
-      FROM boards b
-      LEFT JOIN threads t ON t.board_id = b.board_id
-      LEFT JOIN posts   p ON p.thread_id = t.thread_id AND p.attachment_not_considered = false
-      ORDER BY b.board_id, p.creation_time DESC;
-$$ LANGUAGE sql STABLE;
+\ir remake_fetch_catalog.sql
+\ir fix_search_posts.sql
 
 
 /*
@@ -446,27 +371,24 @@ REVOKE EXECUTE ON FUNCTION fetch_catalog FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION search_posts FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION update_post_body_search_index FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION get_posts FROM PUBLIC;
-REVOKE EXECUTE ON FUNCTION get_latest_posts_per_board FROM PUBLIC;
 
 CREATE ROLE chan_archive_anon nologin;
-GRANT CONNECT ON DATABASE chan_archives              TO chan_archive_anon;
-GRANT SELECT ON sites                                TO chan_archive_anon;
-GRANT SELECT ON boards                               TO chan_archive_anon;
-GRANT SELECT ON threads                              TO chan_archive_anon;
-GRANT SELECT ON posts                                TO chan_archive_anon;
-GRANT SELECT ON attachments                          TO chan_archive_anon;
-GRANT EXECUTE ON FUNCTION fetch_catalog              TO chan_archive_anon;
-GRANT EXECUTE ON FUNCTION fetch_top_threads          TO chan_archive_anon;
-GRANT EXECUTE ON FUNCTION search_posts               TO chan_archive_anon;
-GRANT EXECUTE ON FUNCTION get_posts                  TO chan_archive_anon;
-GRANT EXECUTE ON FUNCTION get_latest_posts_per_board TO chan_archive_anon;
+GRANT CONNECT ON DATABASE chan_archives     TO chan_archive_anon;
+GRANT SELECT ON sites                       TO chan_archive_anon;
+GRANT SELECT ON boards                      TO chan_archive_anon;
+GRANT SELECT ON threads                     TO chan_archive_anon;
+GRANT SELECT ON posts                       TO chan_archive_anon;
+GRANT SELECT ON attachments                 TO chan_archive_anon;
+GRANT EXECUTE ON FUNCTION fetch_catalog     TO chan_archive_anon;
+GRANT EXECUTE ON FUNCTION fetch_top_threads TO chan_archive_anon;
+GRANT EXECUTE ON FUNCTION search_posts      TO chan_archive_anon;
+GRANT EXECUTE ON FUNCTION get_posts         TO chan_archive_anon;
 
 -- GRANT usage, select ON SEQUENCE sites_site_id_seq TO chan_archive_anon;
 -- GRANT usage, select ON SEQUENCE boards_board_id_seq TO chan_archive_anon;
 GRANT chan_archive_anon                 TO admin;
 
 CREATE ROLE chan_archiver noinherit login password 'test_password';
-ALTER ROLE chan_archiver SET pgrst.db_aggregates_enabled = 'true';
 GRANT CONNECT ON DATABASE chan_archives TO chan_archiver;
 GRANT chan_archive_anon                 TO chan_archiver;
 GRANT ALL ON sites                      TO chan_archiver;
@@ -480,7 +402,6 @@ GRANT EXECUTE ON FUNCTION fetch_top_threads             TO chan_archiver;
 GRANT EXECUTE ON FUNCTION fetch_catalog                 TO chan_archiver;
 GRANT EXECUTE ON FUNCTION search_posts                  TO chan_archiver;
 GRANT EXECUTE ON FUNCTION get_posts                     TO chan_archiver;
-GRANT EXECUTE ON FUNCTION get_latest_posts_per_board    TO chan_archiver;
 GRANT usage, select ON SEQUENCE sites_site_id_seq       TO chan_archiver;
 GRANT usage, select ON SEQUENCE boards_board_id_seq     TO chan_archiver;
 GRANT usage, select ON SEQUENCE threads_thread_id_seq   TO chan_archiver;

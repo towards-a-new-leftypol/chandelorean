@@ -1,4 +1,4 @@
-BEGIN TRANSACTION;
+-- BEGIN TRANSACTION;
 
 DROP FUNCTION IF EXISTS search_posts;
 
@@ -78,8 +78,8 @@ RETURNS SETOF catalog_grid_result AS $$
     ORDER BY result_set.relevance DESC;
 $$ LANGUAGE sql STABLE;
 
-GRANT EXECUTE ON FUNCTION search_posts     TO chan_archive_anon;
-GRANT EXECUTE ON FUNCTION search_posts                 TO chan_archiver;
-REVOKE EXECUTE ON FUNCTION search_posts FROM PUBLIC;
+-- GRANT EXECUTE ON FUNCTION search_posts     TO chan_archive_anon;
+-- GRANT EXECUTE ON FUNCTION search_posts                 TO chan_archiver;
+-- REVOKE EXECUTE ON FUNCTION search_posts FROM PUBLIC;
 
-COMMIT;
+-- COMMIT;

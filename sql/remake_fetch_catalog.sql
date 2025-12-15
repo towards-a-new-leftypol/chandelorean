@@ -1,4 +1,4 @@
-BEGIN TRANSACTION;
+-- BEGIN TRANSACTION;
 
 DROP TYPE IF EXISTS catalog_grid_result CASCADE;
 DROP FUNCTION IF EXISTS fetch_catalog;
@@ -73,9 +73,9 @@ RETURNS SETOF catalog_grid_result AS $$
 $$ LANGUAGE sql;
 
 
-REVOKE EXECUTE ON FUNCTION fetch_catalog FROM PUBLIC;
-GRANT EXECUTE ON FUNCTION fetch_catalog     TO chan_archive_anon;
-GRANT EXECUTE ON FUNCTION fetch_catalog                 TO chan_archiver;
+-- REVOKE EXECUTE ON FUNCTION fetch_catalog FROM PUBLIC;
+-- GRANT EXECUTE ON FUNCTION fetch_catalog     TO chan_archive_anon;
+-- GRANT EXECUTE ON FUNCTION fetch_catalog                 TO chan_archiver;
 
 -- ROLLBACK;
-COMMIT;
+-- COMMIT;
