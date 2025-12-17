@@ -22,6 +22,7 @@ DROP FUNCTION IF EXISTS update_post_body_search_index;
 DROP FUNCTION IF EXISTS fetch_top_threads;
 DROP FUNCTION IF EXISTS fetch_catalog;
 DROP FUNCTION IF EXISTS search_posts;
+DROP FUNCTION IF EXISTS get_latest_posts_per_board;
 
 
 -- It won't let us drop roles otherwise and the IFs are to keep this script idempotent.
@@ -83,6 +84,11 @@ CREATE TABLE IF NOT EXISTS posts
     , CONSTRAINT thread_fk FOREIGN KEY (thread_id) REFERENCES threads (thread_id) ON DELETE CASCADE
     , CONSTRAINT unique_thread_local_idx UNIQUE (thread_id, local_idx)
     );
+ALTER TABLE posts ADD COLUMN attachment_not_considered boolean NOT NULL DEFAULT false;
+-- Add the 'sage' column with the default value
+ALTER TABLE posts ADD COLUMN sage boolean NOT NULL DEFAULT false;
+CREATE INDEX posts_attachment_not_considered_idx ON posts (attachment_not_considered);
+CREATE INDEX posts_sage_idx          ON posts (sage);
 CREATE INDEX posts_creation_time_idx ON posts (creation_time);
 CREATE INDEX posts_body_search_idx   ON posts USING GIN (body_search_index);
 CREATE INDEX posts_thread_id_idx     ON posts (thread_id);
@@ -361,6 +367,33 @@ $$ LANGUAGE sql STABLE;
 \ir remake_fetch_catalog.sql
 \ir fix_search_posts.sql
 
+-- for Sync
+CREATE OR REPLACE FUNCTION get_latest_posts_per_board()
+RETURNS TABLE (
+    board_id int,
+    site_id int,
+    pathpart text,
+    post_id bigint,
+    board_post_id bigint,
+    creation_time timestamp with time zone,
+    thread_id bigint,
+    board_thread_id bigint
+) AS $$
+    SELECT DISTINCT ON (b.board_id) 
+           b.board_id,
+           b.site_id,
+           b.pathpart,
+           p.post_id,
+           p.board_post_id,
+           p.creation_time,
+           t.thread_id,
+           t.board_thread_id
+      FROM boards b
+      LEFT JOIN threads t ON t.board_id = b.board_id
+      LEFT JOIN posts   p ON p.thread_id = t.thread_id AND p.attachment_not_considered = false
+      ORDER BY b.board_id, p.creation_time DESC;
+$$ LANGUAGE sql STABLE;
+
 
 /*
  * Permissions
@@ -371,6 +404,7 @@ REVOKE EXECUTE ON FUNCTION fetch_catalog FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION search_posts FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION update_post_body_search_index FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION get_posts FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION get_latest_posts_per_board FROM PUBLIC;
 
 CREATE ROLE chan_archive_anon nologin;
 GRANT CONNECT ON DATABASE chan_archives     TO chan_archive_anon;
@@ -383,6 +417,7 @@ GRANT EXECUTE ON FUNCTION fetch_catalog     TO chan_archive_anon;
 GRANT EXECUTE ON FUNCTION fetch_top_threads TO chan_archive_anon;
 GRANT EXECUTE ON FUNCTION search_posts      TO chan_archive_anon;
 GRANT EXECUTE ON FUNCTION get_posts         TO chan_archive_anon;
+GRANT EXECUTE ON FUNCTION get_latest_posts_per_board TO chan_archive_anon;
 
 -- GRANT usage, select ON SEQUENCE sites_site_id_seq TO chan_archive_anon;
 -- GRANT usage, select ON SEQUENCE boards_board_id_seq TO chan_archive_anon;
@@ -402,6 +437,7 @@ GRANT EXECUTE ON FUNCTION fetch_top_threads             TO chan_archiver;
 GRANT EXECUTE ON FUNCTION fetch_catalog                 TO chan_archiver;
 GRANT EXECUTE ON FUNCTION search_posts                  TO chan_archiver;
 GRANT EXECUTE ON FUNCTION get_posts                     TO chan_archiver;
+GRANT EXECUTE ON FUNCTION get_latest_posts_per_board    TO chan_archiver;
 GRANT usage, select ON SEQUENCE sites_site_id_seq       TO chan_archiver;
 GRANT usage, select ON SEQUENCE boards_board_id_seq     TO chan_archiver;
 GRANT usage, select ON SEQUENCE threads_thread_id_seq   TO chan_archiver;
