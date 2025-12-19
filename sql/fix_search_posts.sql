@@ -37,13 +37,14 @@ RETURNS SETOF catalog_grid_result AS $$
                 threads.board_thread_id,
                 pathpart,
                 sites.name AS site_name,
+                sites.site_id AS site_id,
                 attachments.mimetype as file_mimetype,
                 attachments.illegal as file_illegal,
-                -- attachments.resolution as file_resolution,
+                attachments.resolution as file_resolution,
                 attachments.board_filename as file_name,
                 attachments.file_extension,
                 attachments.thumb_extension as file_thumb_extension,
-                ts_rank(p.body_search_index, query.query)
+                ts_rank(p.body_search_index, query.query) -- TODO: try ts_rank_cd https://www.postgresql.org/docs/current/textsearch-controls.html#TEXTSEARCH-RANKING
                     / (1 + EXTRACT(EPOCH FROM AGE(p.creation_time)) / (3600 * 24)) AS relevance
                 FROM posts p
                 JOIN threads ON threads.thread_id = p.thread_id
@@ -69,8 +70,10 @@ RETURNS SETOF catalog_grid_result AS $$
         result_set.board_thread_id,
         result_set.pathpart,
         result_set.site_name,
+        result_set.site_id,
         result_set.file_mimetype,
         result_set.file_illegal,
+        result_set.file_resolution,
         result_set.file_name,
         result_set.file_extension,
         result_set.file_thumb_extension
@@ -78,8 +81,8 @@ RETURNS SETOF catalog_grid_result AS $$
     ORDER BY result_set.relevance DESC;
 $$ LANGUAGE sql STABLE;
 
+-- REVOKE EXECUTE ON FUNCTION search_posts FROM PUBLIC;
 -- GRANT EXECUTE ON FUNCTION search_posts     TO chan_archive_anon;
 -- GRANT EXECUTE ON FUNCTION search_posts                 TO chan_archiver;
--- REVOKE EXECUTE ON FUNCTION search_posts FROM PUBLIC;
 
 -- COMMIT;

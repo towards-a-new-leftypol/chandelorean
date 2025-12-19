@@ -57,10 +57,10 @@ RETURNS SETOF catalog_grid_result AS $$
         threads.board_thread_id, -- this should be part of the url path when creating links, not thread_id (that's internal)
         boards.pathpart,
         sites."name",
-        -- sites.site_id,
+         sites.site_id,
         attachments.mimetype AS file_mimetype,
         attachments.illegal AS file_illegal,
-        -- attachments.resolution AS file_resolution,
+        attachments.resolution AS file_resolution,
         attachments.board_filename AS file_name,
         attachments.file_extension,
         attachments.thumb_extension AS file_thumb_extension
