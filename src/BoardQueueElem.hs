@@ -5,12 +5,14 @@ import Data.Time.Clock (UTCTime)
 import SitesType (Site)
 import BoardsType (Board)
 import Network.Api.JSONParsing (Thread)
+import Common.Server.ConsumerSettings (ClientApiType)
 
 data BoardQueueElem = BoardQueueElem
     { site :: Site
     , board :: Board
     , last_modified :: UTCTime
     , last_catalog :: Maybe [ Thread ]
+    , client_api_type :: ClientApiType
     } deriving (Eq)
 
 instance Show BoardQueueElem where

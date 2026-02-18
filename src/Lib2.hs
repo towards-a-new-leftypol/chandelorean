@@ -11,6 +11,7 @@ module Lib2
   , removeDeletedThreads
   , liftHttpIO
   , postHasAttachments
+  , IOe
   ) where
 
 import Control.Monad.Trans.Except (ExceptT (..))
@@ -57,6 +58,7 @@ liftHttpIO = ExceptT . fmap (first HttpException)
 
 httpSiteGetRequest :: (FromJSON a) => Sites.Site -> String -> IO (Either HttpError a)
 httpSiteGetRequest site path = Client.getJSON $ Sites.url site </> path
+
 
 httpGetCatalogJSON
   :: Sites.Site

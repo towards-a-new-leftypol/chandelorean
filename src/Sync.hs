@@ -27,10 +27,9 @@ import qualified ThreadType as Thread
 import qualified BoardQueueElem as QE
 import qualified PriorityQueue as PQ
 import qualified Lib2
-import qualified Network.Api.JSONParsing as JS
 import qualified Network.Api.JSONPost as JSONPost
 import qualified Common.PostsType as Post
-
+import qualified ClientAPI as API
 
 consumerSettingsToPartialJSONSettings :: S.ConsumerJSONSettings -> JS.JSONSettings
 consumerSettingsToPartialJSONSettings S.ConsumerJSONSettings {..} =
@@ -60,22 +59,16 @@ threadMain csmr_settings board_elem = do
     -- of the error handling cases every time we make an http call. That can be done
     -- once at the end.
     thread_results <- runExceptT $ do
-        let site = QE.site board_elem
-        let board = QE.board board_elem
+        let
+            site = QE.site board_elem
+            board = QE.board board_elem
+            settings = mkJsonSettings csmr_settings site
+            board_last_modified = QE.last_modified board_elem
+            api = chooseApi $ QE.client_api_type board_elem
 
-        catalog_results <- Lib2.httpGetCatalogJSON site board
+        (API.ChangedThreadsResult changed_threads catalog_threads) <-
+            API.getChangedThreads api board_elem
 
-        let catalog_threads = concatMap (fromMaybe [] . JS.threads) catalog_results
-
-        -- on the first run, this value comes from the latest_posts_per_board_results call
-        -- but then we should update it.
-        let board_last_modified = QE.last_modified board_elem
-
-        let changed_threads = filter
-                (\t -> Lib.epochToUTCTime (JS.last_modified t) > board_last_modified)
-                catalog_threads
-
-        let settings = mkJsonSettings csmr_settings site
 
         last_modified <- if null changed_threads
         then
@@ -221,7 +214,7 @@ syncWebsites csmr_settings = do
                 (\b -> ((GLPPBR.site_id b, GLPPBR.pathpart b), b))
                 latest_posts_per_board
 
-    site_and_board_list_ <- mapM
+    site_and_board_and_api_list_ <- mapM
         (\site_settings -> do
             let site_name = S.name site_settings
 
@@ -258,16 +251,24 @@ syncWebsites csmr_settings = do
                     (Map.findWithDefault [] s_id boards_per_site)
                     s_id
 
-            return (site, existing_boards ++ boards)
+            return (site, existing_boards ++ boards, S.client_api_type site_settings)
 
         )
         (S.websites csmr_settings)
 
-    let site_and_board_list = concatMap (\(a, bs) -> map (\b -> (a, b)) bs) site_and_board_list_
+    let site_and_board_and_api_list =
+            concatMap
+                ( \(a, bs, api) ->
+                    map
+                        ( \b -> (a, b, api)
+                        )
+                        bs
+                )
+                site_and_board_and_api_list_
 
     let queue_elems =
             map
-                (\(site, board) -> QE.BoardQueueElem
+                (\(site, board, api) -> QE.BoardQueueElem
                     { site = site
                     , board = board
                     , last_modified =
@@ -276,10 +277,16 @@ syncWebsites csmr_settings = do
                             (Board.board_id board)
                             board_id_to_last_modified
                     , last_catalog = Nothing
+                    , client_api_type = api
                     }
                 )
-                site_and_board_list
+                site_and_board_and_api_list
 
     let pq :: PQ.Queue QE.BoardQueueElem = Set.fromList queue_elems
 
     mainLoop csmr_settings pq
+
+
+chooseApi :: S.ClientApiType -> API.ClientAPI
+chooseApi S.LainJSON = undefined
+chooseApi S.TinyboardHTML = undefined
