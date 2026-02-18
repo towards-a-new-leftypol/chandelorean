@@ -69,16 +69,15 @@ threadMain csmr_settings board_elem = do
         (API.ChangedThreadsResult changed_threads catalog_threads) <-
             API.getChangedThreads api board_elem
 
-
         last_modified <- if null changed_threads
         then
             return board_last_modified
         else do
-            threads <- Lib2.saveNewThreads settings (QE.board board_elem) changed_threads
+            -- changed plus new threads, so all the ones we need to fetch posts for
+            threads <- Lib2.saveNewThreads settings board changed_threads
 
-            web_posts :: [ (Thread.Thread, [ JSONPost.Post ]) ] <- mapM
-                (Lib2.httpGetPostsJSON site board)
-                threads
+            web_posts :: [ (Thread.Thread, [ JSONPost.Post ]) ] <-
+                    API.getWebPosts api board_elem threads
 
             posts <- Lib2.saveNewPosts settings web_posts
 

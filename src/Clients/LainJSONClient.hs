@@ -5,12 +5,15 @@ import Data.Maybe (fromMaybe)
 import ClientAPI
 import qualified Network.Api.JSONParsing as Thread
 import qualified BoardQueueElem as QE
-import Lib2 (httpGetCatalogJSON, IOe)
+import Lib2 (httpGetCatalogJSON, httpGetPostsJSON, IOe)
 import Lib (epochToUTCTime)
+import Network.Api.JSONPost (Post)
+import ThreadType (Thread)
 
 lainJSONClient :: ClientAPI
 lainJSONClient = ClientAPI
     { getChangedThreads = f
+    , getWebPosts = g
     }
 
     where
@@ -22,7 +25,10 @@ lainJSONClient = ClientAPI
 
             catalog_results <- Lib2.httpGetCatalogJSON site board
 
-            let catalog_threads = concatMap (fromMaybe [] . Thread.threads) catalog_results
+            let catalog_threads =
+                    concatMap
+                        (fromMaybe [] . Thread.threads)
+                        catalog_results
 
             -- on the first run, this value comes from the latest_posts_per_board_results call
             -- but then we should update it.
@@ -36,3 +42,11 @@ lainJSONClient = ClientAPI
                 , catalogThreads = catalog_threads
                 }
 
+        g
+            :: QE.BoardQueueElem
+            -> [ Thread ]
+            -> IOe [ (Thread, [ Post ]) ]
+        g board_elem = mapM (httpGetPostsJSON site board)
+            where
+                site = QE.site board_elem
+                board = QE.board board_elem
