@@ -539,6 +539,8 @@ GRANT EXECUTE ON FUNCTION insert_posts_and_return_ids   TO chan_archiver;
 GRANT EXECUTE ON FUNCTION fetch_top_threads             TO chan_archiver;
 GRANT EXECUTE ON FUNCTION fetch_catalog                 TO chan_archiver;
 GRANT EXECUTE ON FUNCTION fetch_catalog2                TO chan_archiver;
+GRANT EXECUTE ON FUNCTION new_bump_time_slice_on_post_trigger           TO chan_archiver;
+GRANT EXECUTE ON FUNCTION delete_bump_time_slice_on_delete_post_trigger TO chan_archiver;
 GRANT EXECUTE ON FUNCTION search_posts                  TO chan_archiver;
 GRANT EXECUTE ON FUNCTION get_posts                     TO chan_archiver;
 GRANT EXECUTE ON FUNCTION get_latest_posts_per_board    TO chan_archiver;

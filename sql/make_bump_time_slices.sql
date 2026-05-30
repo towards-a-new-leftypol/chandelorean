@@ -218,11 +218,14 @@ JOIN sites st ON b.site_id = st.site_id
 LEFT JOIN attachments a ON a.post_id = p.post_id AND a.attachment_idx = 1
 ORDER BY s.bump_time DESC;
 
-COMMIT;
-
+GRANT SELECT ON thread_bump_time_slices     TO chan_archive_anon;
+GRANT ALL ON thread_bump_time_slices    TO chan_archiver;
 REVOKE EXECUTE ON FUNCTION fetch_catalog     FROM chan_archive_anon;
 REVOKE EXECUTE ON FUNCTION fetch_catalog2 FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION fetch_catalog2    TO chan_archive_anon;
 GRANT EXECUTE ON FUNCTION fetch_catalog2                TO chan_archiver;
 GRANT usage, select ON SEQUENCE thread_bump_time_slices_slice_id_seq TO chan_archiver;
-GRANT chan_archiver TO admin;
+GRANT EXECUTE ON FUNCTION new_bump_time_slice_on_post_trigger           TO chan_archiver;
+GRANT EXECUTE ON FUNCTION delete_bump_time_slice_on_delete_post_trigger TO chan_archiver;
+
+COMMIT;
