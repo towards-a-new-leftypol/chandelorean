@@ -16,11 +16,13 @@ DROP TABLE IF EXISTS boards CASCADE;
 DROP TABLE IF EXISTS threads CASCADE;
 DROP TABLE IF EXISTS posts CASCADE;
 DROP TABLE IF EXISTS attachments CASCADE;
+DROP TABLE IF EXISTS thread_bump_time_slices CASCADE;
 DROP TYPE IF EXISTS catalog_grid_result CASCADE;
 DROP TYPE IF EXISTS post_key CASCADE;
 DROP FUNCTION IF EXISTS update_post_body_search_index;
 DROP FUNCTION IF EXISTS fetch_top_threads;
 DROP FUNCTION IF EXISTS fetch_catalog;
+DROP FUNCTION IF EXISTS fetch_catalog2;
 DROP FUNCTION IF EXISTS search_posts;
 DROP FUNCTION IF EXISTS get_latest_posts_per_board;
 
@@ -151,6 +153,102 @@ CREATE INDEX attachments_attachment_idx_idx ON attachments (attachment_idx);
 CREATE INDEX attachments_phash_bktree_index ON attachments USING spgist (phash bktree_ops);
 
 
+CREATE TABLE IF NOT EXISTS thread_bump_time_slices
+    ( slice_id    bigserial primary key
+    , thread_id   bigint NOT NULL REFERENCES threads (thread_id) ON DELETE CASCADE
+    , board_id    int NOT NULL REFERENCES boards (board_id) ON DELETE CASCADE
+    , valid_from  timestamp with time zone NOT NULL
+    , valid_until timestamp with time zone NOT NULL DEFAULT 'infinity'::timestamp with time zone
+    , post_id     bigint UNIQUE REFERENCES posts (post_id) ON DELETE SET NULL
+    , post_count  int NOT NULL DEFAULT 0
+    , CONSTRAINT  unique_bump_slice_thread_valid_from UNIQUE (thread_id, valid_from)
+    );
+
+-- Board-scoped time-travel pagination (covering index for fast catalog reads)
+CREATE INDEX thread_bump_time_slices_board_id_valid_from_idx
+    ON thread_bump_time_slices (board_id, valid_from DESC)
+    INCLUDE (thread_id, valid_until, post_count);
+
+-- Global/unfiltered time-travel pagination
+CREATE INDEX thread_bump_time_slices_valid_from_idx
+    ON thread_bump_time_slices (valid_from DESC)
+    INCLUDE (thread_id, board_id, valid_until, post_count);
+
+-- Fast lookup for active thread heads (used by insert trigger)
+CREATE INDEX thread_bump_time_slices_thread_id_idx
+    ON thread_bump_time_slices (thread_id)
+    WHERE valid_until = 'infinity'::timestamp with time zone;
+
+-- INSERT: Closes current head, inserts new head with correct board_id & post_count
+CREATE OR REPLACE FUNCTION new_bump_time_slice_on_post_trigger()
+RETURNS trigger AS $$
+BEGIN
+    -- 1. Close the currently active slice for this thread
+    UPDATE thread_bump_time_slices
+    SET valid_until = NEW.creation_time
+    WHERE thread_id = NEW.thread_id AND valid_until = 'infinity'::timestamptz;
+
+    -- 2. Insert new slice. MAX(post_count) safely derives the previous count.
+    INSERT INTO thread_bump_time_slices
+        ( thread_id
+        , board_id
+        , valid_from
+        , valid_until
+        , post_id
+        , post_count
+        )
+    SELECT
+        NEW.thread_id,
+        t.board_id,
+        NEW.creation_time,
+        'infinity'::timestamptz,
+        NEW.post_id,
+        COALESCE(
+            ( SELECT post_count FROM thread_bump_time_slices
+                WHERE thread_id = NEW.thread_id
+                    AND valid_from < NEW.creation_time
+                ORDER BY valid_from DESC
+                LIMIT 1
+            ), 0) + 1
+    FROM threads t
+    WHERE t.thread_id = NEW.thread_id;
+
+    RETURN NULL;
+END
+$$ LANGUAGE plpgsql;
+
+-- DELETE: Reactivates predecessor if head, decrements future counts, removes slice by post_id
+CREATE OR REPLACE FUNCTION delete_bump_time_slice_on_delete_post_trigger()
+RETURNS trigger AS $$
+BEGIN
+    -- 1. Reactivate predecessor if this was the active head
+    -- (Its valid_until was set to OLD.creation_time during insert)
+    UPDATE thread_bump_time_slices
+    SET valid_until = 'infinity'::timestamptz
+    WHERE thread_id = OLD.thread_id AND valid_until = OLD.creation_time;
+
+    -- 2. Decrement post_count for all slices created after the deleted post
+    UPDATE thread_bump_time_slices
+    SET post_count = post_count - 1
+    WHERE thread_id = OLD.thread_id AND valid_from > OLD.creation_time;
+
+    -- 3. Remove the slice explicitly by post_id
+    DELETE FROM thread_bump_time_slices WHERE post_id = OLD.post_id;
+
+    RETURN NULL;
+END
+$$ LANGUAGE plpgsql;
+
+
+CREATE TRIGGER trigger_bump_slice_insert_on_new_post
+    AFTER INSERT ON posts
+    FOR EACH ROW EXECUTE FUNCTION new_bump_time_slice_on_post_trigger();
+
+CREATE TRIGGER trigger_bump_slice_delete_on_post_delete
+    AFTER DELETE ON posts
+    FOR EACH ROW EXECUTE FUNCTION delete_bump_time_slice_on_delete_post_trigger();
+
+
 /*
  * Function Definitions
  */
@@ -266,9 +364,10 @@ CREATE TYPE catalog_grid_result AS
         board_thread_id bigint,
         pathpart text,
         site_name text,
+        site_id int,
         file_mimetype text,
         file_illegal boolean,
-        -- file_resolution dimension,
+        file_resolution dimension,
         file_name text,
         file_extension text,
         file_thumb_extension text
@@ -401,6 +500,7 @@ $$ LANGUAGE sql STABLE;
 REVOKE EXECUTE ON FUNCTION insert_posts_and_return_ids FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION fetch_top_threads FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION fetch_catalog FROM PUBLIC;
+REVOKE EXECUTE ON FUNCTION fetch_catalog2 FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION search_posts FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION update_post_body_search_index FROM PUBLIC;
 REVOKE EXECUTE ON FUNCTION get_posts FROM PUBLIC;
@@ -413,7 +513,9 @@ GRANT SELECT ON boards                      TO chan_archive_anon;
 GRANT SELECT ON threads                     TO chan_archive_anon;
 GRANT SELECT ON posts                       TO chan_archive_anon;
 GRANT SELECT ON attachments                 TO chan_archive_anon;
+GRANT SELECT ON thread_bump_time_slices     TO chan_archive_anon;
 GRANT EXECUTE ON FUNCTION fetch_catalog     TO chan_archive_anon;
+GRANT EXECUTE ON FUNCTION fetch_catalog2    TO chan_archive_anon;
 GRANT EXECUTE ON FUNCTION fetch_top_threads TO chan_archive_anon;
 GRANT EXECUTE ON FUNCTION search_posts      TO chan_archive_anon;
 GRANT EXECUTE ON FUNCTION get_posts         TO chan_archive_anon;
@@ -431,10 +533,12 @@ GRANT ALL ON boards                     TO chan_archiver;
 GRANT ALL ON threads                    TO chan_archiver;
 GRANT ALL ON posts                      TO chan_archiver;
 GRANT ALL ON attachments                TO chan_archiver;
+GRANT ALL ON thread_bump_time_slices    TO chan_archiver;
 GRANT EXECUTE ON FUNCTION update_post_body_search_index TO chan_archiver;
 GRANT EXECUTE ON FUNCTION insert_posts_and_return_ids   TO chan_archiver;
 GRANT EXECUTE ON FUNCTION fetch_top_threads             TO chan_archiver;
 GRANT EXECUTE ON FUNCTION fetch_catalog                 TO chan_archiver;
+GRANT EXECUTE ON FUNCTION fetch_catalog2                TO chan_archiver;
 GRANT EXECUTE ON FUNCTION search_posts                  TO chan_archiver;
 GRANT EXECUTE ON FUNCTION get_posts                     TO chan_archiver;
 GRANT EXECUTE ON FUNCTION get_latest_posts_per_board    TO chan_archiver;
@@ -443,6 +547,7 @@ GRANT usage, select ON SEQUENCE boards_board_id_seq     TO chan_archiver;
 GRANT usage, select ON SEQUENCE threads_thread_id_seq   TO chan_archiver;
 GRANT usage, select ON SEQUENCE posts_post_id_seq       TO chan_archiver;
 GRANT usage, select ON SEQUENCE attachments_attachment_id_seq TO chan_archiver;
+GRANT usage, select ON SEQUENCE thread_bump_time_slices_slice_id_seq TO chan_archiver;
 
 GRANT chan_archiver TO admin;
 

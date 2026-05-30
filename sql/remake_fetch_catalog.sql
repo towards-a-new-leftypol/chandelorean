@@ -4,30 +4,6 @@ DROP TYPE IF EXISTS catalog_grid_result CASCADE;
 DROP FUNCTION IF EXISTS fetch_catalog;
 
 -- OLD: 121ms
-CREATE TYPE catalog_grid_result AS
-    (
-        -- post_count bigint,
-        estimated_post_count bigint,
-        post_id bigint,
-        board_post_id bigint,
-        creation_time timestamptz,
-        bump_time timestamptz,
-        body text,
-        subject text,
-        thread_id bigint,
-        embed text,
-        board_thread_id bigint,
-        pathpart text,
-        site_name text,
-        file_mimetype text,
-        file_illegal boolean,
-        -- file_resolution dimension,
-        file_name text,
-        file_extension text,
-        file_thumb_extension text
-    );
-
-
 CREATE OR REPLACE FUNCTION fetch_catalog(max_time timestamptz, max_row_read int DEFAULT 10000)
 RETURNS SETOF catalog_grid_result AS $$
     WITH
@@ -57,7 +33,7 @@ RETURNS SETOF catalog_grid_result AS $$
         threads.board_thread_id, -- this should be part of the url path when creating links, not thread_id (that's internal)
         boards.pathpart,
         sites."name",
-         sites.site_id,
+        sites.site_id,
         attachments.mimetype AS file_mimetype,
         attachments.illegal AS file_illegal,
         attachments.resolution AS file_resolution,
@@ -72,6 +48,100 @@ RETURNS SETOF catalog_grid_result AS $$
     ORDER BY bump_time DESC;
 $$ LANGUAGE sql;
 
+CREATE OR REPLACE FUNCTION fetch_catalog2(
+    selected_time timestamptz,
+    board_ids   int[] DEFAULT NULL,
+    scroll_time   timestamptz DEFAULT 'infinity'::timestamptz,
+    thread_count  int DEFAULT 1000
+) RETURNS SETOF catalog_grid_result AS $$
+BEGIN
+RETURN QUERY WITH active_slices AS (
+    SELECT thread_id, board_id, valid_from AS bump_time, post_count
+    FROM thread_bump_time_slices
+    WHERE valid_from <= selected_time
+      AND valid_until > selected_time
+      AND valid_from < scroll_time
+      AND (board_ids IS NULL OR board_id = ANY(board_ids))
+    ORDER BY valid_from DESC
+    LIMIT thread_count
+)
+SELECT 
+    s.post_count::bigint AS estimated_post_count,
+    p.post_id,
+    p.board_post_id,
+    p.creation_time,
+    s.bump_time,
+    p.body,
+    p.subject,
+    s.thread_id,
+    p.embed,
+    t.board_thread_id,
+    b.pathpart,
+    st.name AS site_name,
+    st.site_id AS site_id,
+    a.mimetype AS file_mimetype,
+    a.illegal AS file_illegal,
+    a.resolution AS file_resolution,
+    a.board_filename AS file_name,
+    a.file_extension,
+    a.thumb_extension AS file_thumb_extension
+FROM active_slices s
+JOIN posts p ON p.thread_id = s.thread_id AND p.local_idx = 1
+JOIN threads t ON s.thread_id = t.thread_id
+JOIN boards b ON t.board_id = b.board_id
+JOIN sites st ON b.site_id = st.site_id
+LEFT JOIN attachments a ON a.post_id = p.post_id AND a.attachment_idx = 1
+ORDER BY s.bump_time DESC;
+
+END
+$$ LANGUAGE plpgsql stable;
+
+EXPLAIN ANALYZE SELECT fetch_catalog2(NOW(), ARRAY[1, 2, 3], thread_count => 50, scroll_time => '2026-05-29 19:57:58-04' :: timestamptz);
+EXPLAIN ANALYZE SELECT fetch_catalog2(NOW(), thread_count => 50);
+EXPLAIN ANALYZE SELECT fetch_catalog(NOW(), max_row_read => 1000);
+
+EXPLAIN ANALYZE WITH
+    selected_time AS (SELECT now()),
+    scroll_time AS (SELECT 'infinity' :: timestamptz),
+    board_ids AS (SELECT board_id FROM boards),
+    active_slices AS
+    	(
+            SELECT thread_id, board_id, valid_from AS bump_time, post_count
+            FROM thread_bump_time_slices
+            WHERE valid_from <= (select * from selected_time)
+              AND valid_until > (select * from selected_time)
+              AND valid_from < (select * from scroll_time)
+              AND board_id IN (SELECT * FROM board_ids)
+            ORDER BY valid_from DESC
+            LIMIT 50
+        )
+SELECT 
+    s.post_count::bigint AS estimated_post_count,
+    p.post_id,
+    p.board_post_id,
+    p.creation_time,
+    s.bump_time,
+    p.body,
+    p.subject,
+    s.thread_id,
+    p.embed,
+    t.board_thread_id,
+    b.pathpart,
+    st.name AS site_name,
+    st.site_id AS site_id,
+    a.mimetype AS file_mimetype,
+    a.illegal AS file_illegal,
+    a.resolution AS file_resolution,
+    a.board_filename AS file_name,
+    a.file_extension,
+    a.thumb_extension AS file_thumb_extension
+FROM active_slices s
+JOIN posts p ON p.thread_id = s.thread_id AND p.local_idx = 1
+JOIN threads t ON s.thread_id = t.thread_id
+JOIN boards b ON t.board_id = b.board_id
+JOIN sites st ON b.site_id = st.site_id
+LEFT JOIN attachments a ON a.post_id = p.post_id AND a.attachment_idx = 1
+ORDER BY s.bump_time DESC;
 
 -- REVOKE EXECUTE ON FUNCTION fetch_catalog FROM PUBLIC;
 -- GRANT EXECUTE ON FUNCTION fetch_catalog     TO chan_archive_anon;
