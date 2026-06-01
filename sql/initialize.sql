@@ -25,7 +25,8 @@ DROP FUNCTION IF EXISTS fetch_catalog;
 DROP FUNCTION IF EXISTS fetch_catalog2;
 DROP FUNCTION IF EXISTS search_posts;
 DROP FUNCTION IF EXISTS get_latest_posts_per_board;
-
+DROP TRIGGER IF EXISTS trigger_bump_slice_insert_on_new_post;
+DROP TRIGGER IF EXISTS trigger_bump_slice_delete_on_post_delete;
 
 -- It won't let us drop roles otherwise and the IFs are to keep this script idempotent.
 DO
@@ -161,7 +162,8 @@ CREATE TABLE IF NOT EXISTS thread_bump_time_slices
     , valid_until timestamp with time zone NOT NULL DEFAULT 'infinity'::timestamp with time zone
     , post_id     bigint UNIQUE REFERENCES posts (post_id) ON DELETE SET NULL
     , post_count  int NOT NULL DEFAULT 0
-    , CONSTRAINT  unique_bump_slice_thread_valid_from UNIQUE (thread_id, valid_from)
+    , CONSTRAINT  unique_bump_slice_thread_valid_until UNIQUE (thread_id, valid_until)
+    , CONSTRAINT  slice_until_gt_from CHECK (valid_until >= valid_from)
     );
 
 -- Board-scoped time-travel pagination (covering index for fast catalog reads)
@@ -182,40 +184,69 @@ CREATE INDEX thread_bump_time_slices_thread_id_idx
 -- INSERT: Closes current head, inserts new head with correct board_id & post_count
 CREATE OR REPLACE FUNCTION new_bump_time_slice_on_post_trigger()
 RETURNS trigger AS $$
+DECLARE
+    v_head_from      timestamptz;
+    v_next_interval  timestamptz;
+    v_rows_inserted  int;
 BEGIN
-    -- 1. Close the currently active slice for this thread
-    UPDATE thread_bump_time_slices
-    SET valid_until = NEW.creation_time
-    WHERE thread_id = NEW.thread_id AND valid_until = 'infinity'::timestamptz;
+    -- 1. Lock the current head slice to serialize concurrent writes
+    SELECT valid_from INTO v_head_from
+    FROM thread_bump_time_slices
+    WHERE thread_id = NEW.thread_id AND valid_until = 'infinity'
+    FOR UPDATE
+    LIMIT 1;
 
-    -- 2. Insert new slice. MAX(post_count) safely derives the previous count.
-    INSERT INTO thread_bump_time_slices
-        ( thread_id
-        , board_id
-        , valid_from
-        , valid_until
-        , post_id
-        , post_count
-        )
-    SELECT
-        NEW.thread_id,
-        t.board_id,
-        NEW.creation_time,
-        'infinity'::timestamptz,
-        NEW.post_id,
-        COALESCE(
-            ( SELECT post_count FROM thread_bump_time_slices
-                WHERE thread_id = NEW.thread_id
-                    AND valid_from < NEW.creation_time
-                ORDER BY valid_from DESC
-                LIMIT 1
-            ), 0) + 1
-    FROM threads t
-    WHERE t.thread_id = NEW.thread_id
-    ON CONFLICT ON CONSTRAINT unique_bump_slice_thread_valid_from DO NOTHING;
+    IF v_head_from IS NULL THEN
+        -- Case A: First post for this thread
+        INSERT INTO thread_bump_time_slices (thread_id, board_id, valid_from, valid_until, post_id, post_count)
+        SELECT NEW.thread_id, t.board_id, NEW.creation_time, 'infinity', NEW.post_id, 1
+        FROM threads t WHERE t.thread_id = NEW.thread_id;
+
+    ELSIF NEW.creation_time > v_head_from THEN
+        -- Case B: Newer post arrives -> close current head, create new head
+        UPDATE thread_bump_time_slices
+        SET valid_until = NEW.creation_time
+        WHERE thread_id = NEW.thread_id AND valid_until = 'infinity';
+
+        INSERT INTO thread_bump_time_slices (thread_id, board_id, valid_from, valid_until, post_id, post_count)
+        SELECT
+            NEW.thread_id, t.board_id, NEW.creation_time, 'infinity', NEW.post_id,
+            COALESCE((SELECT post_count FROM thread_bump_time_slices
+                      WHERE thread_id = NEW.thread_id AND valid_from < NEW.creation_time
+                      ORDER BY valid_from DESC LIMIT 1), 0) + 1
+        FROM threads t WHERE t.thread_id = NEW.thread_id;
+
+    ELSIF NEW.creation_time <= v_head_from THEN
+        -- Case C: Older/same-time post -> insert historical slice, bump subsequent counts
+        SELECT valid_from INTO v_next_interval
+        FROM thread_bump_time_slices
+        WHERE thread_id = NEW.thread_id AND valid_from > NEW.creation_time
+        ORDER BY valid_from ASC
+        LIMIT 1
+        FOR UPDATE;
+
+        v_next_interval := COALESCE(v_next_interval, v_head_from);
+
+        INSERT INTO thread_bump_time_slices (thread_id, board_id, valid_from, valid_until, post_id, post_count)
+        SELECT
+            NEW.thread_id, t.board_id, NEW.creation_time, v_next_interval, NEW.post_id,
+            COALESCE((SELECT post_count FROM thread_bump_time_slices
+                      WHERE thread_id = NEW.thread_id AND valid_from < NEW.creation_time
+                      ORDER BY valid_from DESC LIMIT 1), 0) + 1
+        FROM threads t WHERE t.thread_id = NEW.thread_id
+        ON CONFLICT ON CONSTRAINT unique_bump_slice_thread_valid_until DO NOTHING;
+
+        -- Only bump counts if a new row was actually inserted
+        GET DIAGNOSTICS v_rows_inserted = ROW_COUNT;
+        IF v_rows_inserted > 0 THEN
+            UPDATE thread_bump_time_slices
+            SET post_count = post_count + 1
+            WHERE thread_id = NEW.thread_id AND valid_from > NEW.creation_time;
+        END IF;
+    END IF;
 
     RETURN NULL;
-END
+END;
 $$ LANGUAGE plpgsql;
 
 -- DELETE: Reactivates predecessor if head, decrements future counts, removes slice by post_id
@@ -241,11 +272,11 @@ END
 $$ LANGUAGE plpgsql;
 
 
-CREATE TRIGGER trigger_bump_slice_insert_on_new_post
+CREATE OR REPLACE TRIGGER trigger_bump_slice_insert_on_new_post
     AFTER INSERT ON posts
     FOR EACH ROW EXECUTE FUNCTION new_bump_time_slice_on_post_trigger();
 
-CREATE TRIGGER trigger_bump_slice_delete_on_post_delete
+CREATE OR REPLACE TRIGGER trigger_bump_slice_delete_on_post_delete
     AFTER DELETE ON posts
     FOR EACH ROW EXECUTE FUNCTION delete_bump_time_slice_on_delete_post_trigger();
 
