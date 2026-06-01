@@ -61,7 +61,8 @@ BEGIN
                 LIMIT 1
             ), 0) + 1
     FROM threads t
-    WHERE t.thread_id = NEW.thread_id;
+    WHERE t.thread_id = NEW.thread_id
+    ON CONFLICT ON CONSTRAINT unique_bump_slice_thread_valid_from DO NOTHING;
 
     RETURN NULL;
 END
