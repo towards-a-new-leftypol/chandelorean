@@ -30,6 +30,8 @@ import qualified Lib2
 import qualified Network.Api.JSONPost as JSONPost
 import qualified Common.PostsType as Post
 import qualified ClientAPI as API
+import Clients.LainJSONClient (lainJSONClient)
+import Clients.TinyboardHTML (tinyboardHTMLClient)
 
 consumerSettingsToPartialJSONSettings :: S.ConsumerJSONSettings -> JS.JSONSettings
 consumerSettingsToPartialJSONSettings S.ConsumerJSONSettings {..} =
@@ -287,5 +289,5 @@ syncWebsites csmr_settings = do
 
 
 chooseApi :: S.ClientApiType -> API.ClientAPI
-chooseApi S.LainJSON = undefined
-chooseApi S.TinyboardHTML = undefined
+chooseApi S.LainJSON = lainJSONClient
+chooseApi S.TinyboardHTML = tinyboardHTMLClient

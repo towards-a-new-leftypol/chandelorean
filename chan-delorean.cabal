@@ -147,6 +147,7 @@ executable chan-delorean-consoomer
                       Lib2
                       ClientAPI
                       Clients.LainJSONClient
+                      Clients.TinyboardHTML
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:

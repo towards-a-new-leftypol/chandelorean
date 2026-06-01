@@ -6,6 +6,7 @@ module Lib2
   , ProgramException (..)
   , saveNewThreads
   , httpGetPostsJSON
+  , httpGet
   , saveNewPosts
   , saveNewAttachments
   , removeDeletedThreads
@@ -29,6 +30,7 @@ import System.Directory (removeDirectoryRecursive, doesDirectoryExist)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad (when, unless)
 import Data.Either (partitionEithers)
+import qualified Data.ByteString.Lazy as LBS
 
 import qualified Network.DataClient as Client
 import qualified SitesType  as Sites
@@ -56,17 +58,27 @@ liftHttpIO :: IO (Either HttpError a) -> IOe a
 liftHttpIO = ExceptT . fmap (first HttpException)
 
 
-httpSiteGetRequest :: (FromJSON a) => Sites.Site -> String -> IO (Either HttpError a)
-httpSiteGetRequest site path = Client.getJSON $ Sites.url site </> path
+httpSiteJSONGetRequest
+    :: (FromJSON a)
+    => Sites.Site
+    -> String
+    -> IOe a
+httpSiteJSONGetRequest site path = liftHttpIO $
+    Client.getJSON $ Sites.url site </> path
 
 
-httpGetCatalogJSON
+httpGetCatalogJSON :: Sites.Site -> Boards.Board -> IOe [ JSON.Catalog ]
+httpGetCatalogJSON site board = httpSiteJSONGetRequest site path
+    where
+        path = Boards.pathpart board </> "catalog.json"
+
+
+httpGet
   :: Sites.Site
-  -> Boards.Board
-  -> IOe [ JSON.Catalog ]
-httpGetCatalogJSON site board = liftHttpIO $ httpSiteGetRequest site path
-  where
-    path = Boards.pathpart board </> "catalog.json"
+  -> String
+  -> IOe LBS.ByteString
+httpGet site path = liftHttpIO $
+    Client.get_ (Sites.url site </> path) []
 
 
 httpGetPostsJSON
@@ -75,8 +87,7 @@ httpGetPostsJSON
   -> Thread.Thread
   -> IOe (Thread.Thread, [ JSONPost.Post ])
 httpGetPostsJSON site board thread =
-    liftHttpIO $
-        fmap ((thread,) . JSONPost.posts) <$> httpSiteGetRequest site path
+    (thread,) . JSONPost.posts <$> httpSiteJSONGetRequest site path
 
     where
         path = Boards.pathpart board

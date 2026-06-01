@@ -1,7 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DeriveAnyClass #-}
 {-# OPTIONS_GHC -Wno-unrecognised-pragmas #-}
-{-# HLINT ignore "Use <&>" #-}
 
 module Network.DataClient
   ( HttpError(..)
@@ -24,6 +23,7 @@ module Network.DataClient
   , getLatestPostsPerBoard
   , deleteThreads
   , updatePostAttachmentNotConsidered
+  , get_ -- from Common.Network.HttpClient
   ) where
 
 import Control.Monad (forM)
@@ -62,14 +62,15 @@ data PostId = PostId
     } deriving (Show, Generic, ToJSON)
 
 getSiteBoards :: T.JSONSettings -> Int -> IO (Either HttpError [ Boards.Board ])
-getSiteBoards settings site_id_ = get settings path >>= return . eitherDecodeResponse
-  where
-    path = "/boards?site_id=eq." ++ show site_id_
+getSiteBoards settings site_id_ = eitherDecodeResponse <$>
+    get settings path
+    where
+        path = "/boards?site_id=eq." ++ show site_id_
 
 
 postSite :: T.JSONSettings -> IO (Either HttpError [ Sites.Site ])
 postSite settings =
-    post settings "/sites" payload True >>= return . eitherDecodeResponse
+    eitherDecodeResponse <$> post settings "/sites" payload True
 
     where
       payload = encode $
@@ -82,8 +83,8 @@ postBoards
     -> [] String
     -> Int
     -> IO (Either HttpError [ Boards.Board ])
-postBoards settings boards siteid =
-    post settings "/boards" payload True >>= return . eitherDecodeResponse
+postBoards settings boards siteid = eitherDecodeResponse <$>
+    post settings "/boards" payload True
 
     where
       payload = encode $ fmap mk_obj boards
@@ -99,8 +100,8 @@ postThreads
     :: T.JSONSettings
     -> [ Threads.Thread ]
     -> IO (Either HttpError [ Threads.Thread ])
-postThreads settings threads =
-    post settings "/threads" payload True >>= return . eitherDecodeResponse
+postThreads settings threads = eitherDecodeResponse <$>
+    post settings "/threads" payload True
 
     where
       payload = encode $ fmap mk_obj threads
@@ -114,12 +115,13 @@ postThreads settings threads =
 
 
 getAllSites :: T.JSONSettings -> IO (Either HttpError [ Sites.Site ])
-getAllSites settings = get settings "/sites" >>= return . eitherDecodeResponse
+getAllSites settings = eitherDecodeResponse <$>
+    get settings "/sites"
 
 
 getThreads :: T.JSONSettings -> Int -> [ Int64 ] -> IO (Either HttpError [ Threads.Thread ])
-getThreads settings board_id board_thread_ids =
-    get settings path >>= return . eitherDecodeResponse
+getThreads settings board_id board_thread_ids = eitherDecodeResponse <$>
+    get settings path
 
     where
         path = "/threads?board_thread_id=in.(" ++ ids ++ ")&board_id=eq." ++ show board_id
@@ -137,7 +139,7 @@ deleteThreads settings board_id board_thread_ids =
 
 getThreadMaxLocalIdx :: T.JSONSettings -> [ Int64 ] -> IO (Either HttpError [(Int64, Int)])
 getThreadMaxLocalIdx settings thread_ids = do
-    result :: Either HttpError [ T.ThreadMaxIdx ] <- get settings path >>= return . eitherDecodeResponse
+    result :: Either HttpError [ T.ThreadMaxIdx ] <- eitherDecodeResponse <$> get settings path
 
     let results = result >>= \x -> return $ map (\t -> (T.thread_id t, T.max_idx t)) x
 
@@ -172,8 +174,8 @@ combineResults results =
 
 -- | Function to handle each chunk.
 getAttachmentsChunk :: T.JSONSettings -> [Int64] -> IO (Either HttpError [Attachments.Attachment])
-getAttachmentsChunk settings chunk =
-    get settings path >>= return . eitherDecodeResponse
+getAttachmentsChunk settings chunk = eitherDecodeResponse <$>
+    get settings path
 
     where
         path = "/attachments?post_id=in.(" ++ intercalate "," (map show chunk) ++ ")"
@@ -183,17 +185,17 @@ postAttachments
     :: T.JSONSettings
     -> [ Attachments.Attachment ]
     -> IO (Either HttpError [ Attachments.Attachment ])
-postAttachments settings attachments = do
-    post settings "/attachments" payload True >>= return . eitherDecodeResponse
+postAttachments settings attachments = eitherDecodeResponse <$>
+    post settings "/attachments" payload True
 
     where
-      payload = encode attachments
+        payload = encode attachments
 
 
 -- | Function to handle each chunk.
 getPostsChunk :: T.JSONSettings -> [ PostId ] -> IO (Either HttpError [ Posts.Post ])
-getPostsChunk settings chunk =
-    post settings "/rpc/get_posts" payload False >>= return . eitherDecodeResponse
+getPostsChunk settings chunk = eitherDecodeResponse <$>
+    post settings "/rpc/get_posts" payload False
 
     where
         payload = encode $ object [ "board_posts" .= chunk ]
@@ -212,8 +214,8 @@ postPosts
     :: T.JSONSettings
     -> [ Posts.Post ]
     -> IO (Either HttpError [ Posts.Post ])
-postPosts settings posts =
-    post settings "/posts" payload True >>= return . eitherDecodeResponse
+postPosts settings posts = eitherDecodeResponse <$>
+    post settings "/posts" payload True
 
     where
         payload = encode posts
@@ -228,7 +230,7 @@ eitherDecodeResponse (Right bs) =
 
 
 getJSON :: (FromJSON a) => String -> IO (Either HttpError a)
-getJSON url = get_ url [] >>= return . eitherDecodeResponse
+getJSON url = eitherDecodeResponse <$> get_ url []
 
 
 getFile :: String -> IO (Either HttpError String)
@@ -250,8 +252,8 @@ getFile url = do
 
 
 getLatestPostsPerBoard :: T.JSONSettings -> IO (Either HttpError [ GLPPBR.GetLatestPostsPerBoardResponse ])
-getLatestPostsPerBoard settings =
-    post settings "/rpc/get_latest_posts_per_board" mempty False >>= return . eitherDecodeResponse
+getLatestPostsPerBoard settings = eitherDecodeResponse <$>
+    post settings "/rpc/get_latest_posts_per_board" mempty False
 
 
 updatePostAttachmentNotConsidered :: T.JSONSettings -> [ Int64 ] -> IO (Either HttpError LBS.ByteString )
