@@ -24,6 +24,7 @@ module Network.DataClient
   , deleteThreads
   , updatePostAttachmentNotConsidered
   , get_ -- from Common.Network.HttpClient
+  , getAllAttachmentsPaged
   ) where
 
 import Control.Monad (forM)
@@ -54,6 +55,8 @@ import qualified Common.PostsType  as Posts
 import Common.Network.HttpClient
 import qualified Network.DataClientTypes as T
 import qualified Network.GetLatestPostsPerBoardResponse as GLPPBR
+import qualified Common.Network.SiteType as Site
+import Common.Parsing.FlexibleJsonResponseParser as Flx
 
 
 data PostId = PostId
@@ -181,6 +184,19 @@ getAttachmentsChunk settings chunk = eitherDecodeResponse <$>
         path = "/attachments?post_id=in.(" ++ intercalate "," (map show chunk) ++ ")"
 
 
+getAllAttachmentsPaged
+    :: T.JSONSettings
+    -> Int
+    -> Int
+    -> IO (Either HttpError [ Sites.Site ])
+getAllAttachmentsPaged settings limit offset = eitherDecodeResponse <$> get settings path
+
+    where
+        path = "/attachments?select=*,posts:post_id(*,threads:thread_id(*,boards:board_id(*,sites:site_id(*))))&order=creation_time.desc"
+            ++ "&limit=" ++ show limit
+            ++ "&offset=" ++ show offset
+
+
 postAttachments
     :: T.JSONSettings
     -> [ Attachments.Attachment ]
@@ -263,3 +279,11 @@ updatePostAttachmentNotConsidered settings post_ids =
     where
         path = "/posts?thread_id=in.(" ++ intercalate "," (map show post_ids) ++ ")&attachment_not_considered=eq.true"
         payload = encode $ object [ "attachment_not_considered" .= False ]
+
+
+siteFromSSite :: Flx.SSite -> Site.Site
+siteFromSSite (SSite s) = s
+
+
+sitesFromSSites :: [ Flx.SSite ] -> [ Site.Site ]
+sitesFromSSites = map siteFromSSite

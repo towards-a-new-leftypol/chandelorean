@@ -38,7 +38,10 @@ let
 
   enhancedDrv = if pkgs.lib.inNixShell
     then drv.env.overrideAttrs (oldAttrs: {
-      buildInputs = oldAttrs.buildInputs or [] ++ [ pkgs.postgresql ];
+      buildInputs = oldAttrs.buildInputs or [] ++ [
+        pkgs.postgresql
+        pkgs.haskell-language-server
+      ];
     })
     else drv;
 

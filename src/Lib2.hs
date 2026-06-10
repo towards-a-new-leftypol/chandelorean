@@ -21,7 +21,7 @@ import qualified Data.Set as Set
 import qualified Data.Map as Map
 import Data.Aeson (FromJSON)
 import Data.Int (Int64)
-import Data.List (sortBy, foldl')
+import Data.List (sortBy)
 import Data.Ord (comparing)
 import Data.Bifunctor (first)
 import Data.Maybe (fromJust, catMaybes)
