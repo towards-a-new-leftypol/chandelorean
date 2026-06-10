@@ -31,6 +31,7 @@ module Lib
     , copyOrMoveFiles
     , moveAttachmentAndThumb
     , makeThreadAttachmentFsPath
+    , moveFile
     ) where
 
 import System.Exit

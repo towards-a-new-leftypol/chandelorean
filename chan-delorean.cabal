@@ -96,6 +96,7 @@ executable chan-delorean-consoomer
                       Common.Network.PostType
                       Common.Network.SiteType
                       Common.Network.ThreadType
+                      CliSettings
 
 
     -- LANGUAGE extensions used by modules in this package.
@@ -142,12 +143,64 @@ executable download-missing-attachments
 
     -- Modules included in this executable, other than Main.
     other-modules:
+                      CliSettings
+                      Common.Server.ConsumerSettings
+                      Network.DataClient
+                      BoardsType
+                      Common.AttachmentType
+                      Common.Network.BoardType
+                      Common.Network.HttpClient
+                      Common.Network.PostType
+                      Common.Network.SiteType
+                      Common.Network.ThreadType
+                      Common.Parsing.FlexibleJsonResponseParser
+                      Common.PostsType
+                      Common.Server.JSONSettings
+                      Network.DataClientTypes
+                      Network.GetLatestPostsPerBoardResponse
+                      SitesType
+                      ThreadType
+                      BoardQueueElem
+                      ClientAPI
+                      Clients.LainJSONClient
+                      Clients.TinyboardHTML
+                      Data.WordUtil
+                      Hash
+                      Lib
+                      Lib2
+                      Network.Api.JSONCommonTypes
+                      Network.Api.JSONExtraFile
+                      Network.Api.JSONParsing
+                      Network.Api.JSONPost
+                      PriorityQueue
+                      Sync
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
 
     -- Other library packages from which modules are imported.
-    build-depends:    base
+    build-depends:    base,
+                      text,
+                      aeson,
+                      cmdargs,
+                      bytestring,
+                      time,
+                      safe-exceptions,
+                      http-types,
+                      http-conduit,
+                      http-client,
+                      vector,
+                      temporary,
+                      memory,
+                      crypton,
+                      random,
+                      perceptual-hash,
+                      mime-types,
+                      containers,
+                      filepath,
+                      directory,
+                      transformers,
+                      stm
 
     -- Directories containing source files.
     hs-source-dirs:   src

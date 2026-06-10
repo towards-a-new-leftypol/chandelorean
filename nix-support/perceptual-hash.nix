@@ -1,12 +1,6 @@
 { nixpkgs ? import <nixpkgs> {} }:
 
 let
-  # haskellPackages = nixpkgs.haskellPackages.override {
-  #   overrides = self: super: {
-  #     hip = import ./hip.nix { inherit nixpkgs; };
-  #   };
-  # };
-
   haskellPackages = nixpkgs.haskellPackages.override {
     overrides = self: super: {
       hip = nixpkgs.pkgs.haskell.lib.overrideCabal super.hip (drv: {

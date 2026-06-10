@@ -188,11 +188,13 @@ getAllAttachmentsPaged
     :: T.JSONSettings
     -> Int
     -> Int
-    -> IO (Either HttpError [ Sites.Site ])
-getAllAttachmentsPaged settings limit offset = eitherDecodeResponse <$> get settings path
+    -> IO (Either HttpError [ Site.Site ])
+getAllAttachmentsPaged settings limit offset = do
+    response <- get settings path
+    return $ sitesFromSSites <$> eitherDecodeResponse response
 
     where
-        path = "/attachments?select=*,posts:post_id(*,threads:thread_id(*,boards:board_id(*,sites:site_id(*))))&order=creation_time.desc"
+        path = "/attachments?select=*,posts:post_id(*,threads:thread_id(*,boards:board_id(*,sites:site_id(*))))&order=attachment_id.desc"
             ++ "&limit=" ++ show limit
             ++ "&offset=" ++ show offset
 
