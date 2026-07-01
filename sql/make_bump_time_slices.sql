@@ -32,7 +32,6 @@ CREATE INDEX thread_bump_time_slices_thread_id_idx
     ON thread_bump_time_slices (thread_id)
     WHERE valid_until = 'infinity'::timestamp with time zone;
 
--- INSERT: Closes current head, inserts new head with correct board_id & post_count
 CREATE OR REPLACE FUNCTION new_bump_time_slice_on_post_trigger()
 RETURNS trigger AS $$
 DECLARE
@@ -54,18 +53,26 @@ BEGIN
         FROM threads t WHERE t.thread_id = NEW.thread_id;
 
     ELSIF NEW.creation_time > v_head_from THEN
-        -- Case B: Newer post arrives -> close current head, create new head
-        UPDATE thread_bump_time_slices
-        SET valid_until = NEW.creation_time
-        WHERE thread_id = NEW.thread_id AND valid_until = 'infinity';
+        -- Case B: Newer post arrives
+        IF NEW.sage THEN
+            -- Sage post: does not bump the thread, just increments the post count of the active head
+            UPDATE thread_bump_time_slices
+            SET post_count = post_count + 1
+            WHERE thread_id = NEW.thread_id AND valid_until = 'infinity';
+        ELSE
+            -- Normal post: close current head, create new head
+            UPDATE thread_bump_time_slices
+            SET valid_until = NEW.creation_time
+            WHERE thread_id = NEW.thread_id AND valid_until = 'infinity';
 
-        INSERT INTO thread_bump_time_slices (thread_id, board_id, valid_from, valid_until, post_id, post_count)
-        SELECT
-            NEW.thread_id, t.board_id, NEW.creation_time, 'infinity', NEW.post_id,
-            COALESCE((SELECT post_count FROM thread_bump_time_slices
-                      WHERE thread_id = NEW.thread_id AND valid_from < NEW.creation_time
-                      ORDER BY valid_from DESC LIMIT 1), 0) + 1
-        FROM threads t WHERE t.thread_id = NEW.thread_id;
+            INSERT INTO thread_bump_time_slices (thread_id, board_id, valid_from, valid_until, post_id, post_count)
+            SELECT
+                NEW.thread_id, t.board_id, NEW.creation_time, 'infinity', NEW.post_id,
+                COALESCE((SELECT post_count FROM thread_bump_time_slices
+                          WHERE thread_id = NEW.thread_id AND valid_from < NEW.creation_time
+                          ORDER BY valid_from DESC LIMIT 1), 0) + 1
+            FROM threads t WHERE t.thread_id = NEW.thread_id;
+        END IF;
 
     ELSIF NEW.creation_time <= v_head_from THEN
         -- Case C: Older/same-time post -> insert historical slice, bump subsequent counts
@@ -100,39 +107,87 @@ BEGIN
 END;
 $$ LANGUAGE plpgsql;
 
--- DELETE: Reactivates predecessor if head, decrements future counts, removes slice by post_id
 CREATE OR REPLACE FUNCTION delete_bump_time_slice_on_delete_post_trigger()
 RETURNS trigger AS $$
+DECLARE
+    v_deleted_slice_until timestamptz;
 BEGIN
-    -- 1. Reactivate predecessor if this was the active head
-    -- (Its valid_until was set to OLD.creation_time during insert)
-    UPDATE thread_bump_time_slices
-    SET valid_until = 'infinity'::timestamptz
-    WHERE thread_id = OLD.thread_id AND valid_until = OLD.creation_time;
+    -- 1. Get the valid_until of the slice being deleted
+    SELECT valid_until INTO v_deleted_slice_until
+    FROM thread_bump_time_slices
+    WHERE post_id = OLD.post_id;
 
-    -- 2. Decrement post_count for all slices created after the deleted post
-    UPDATE thread_bump_time_slices
-    SET post_count = post_count - 1
-    WHERE thread_id = OLD.thread_id AND valid_from > OLD.creation_time;
+    IF v_deleted_slice_until IS NOT NULL THEN
+        -- 2. Remove the slice explicitly by post_id FIRST to free up its valid_until
+        DELETE FROM thread_bump_time_slices WHERE post_id = OLD.post_id;
 
-    -- 3. Remove the slice explicitly by post_id
-    DELETE FROM thread_bump_time_slices WHERE post_id = OLD.post_id;
+        -- 3. Extend predecessor's valid_until to cover the deleted post's interval
+        -- If the deleted post was the active head, v_deleted_slice_until is 'infinity',
+        -- which correctly reactivates the predecessor as the new head.
+        UPDATE thread_bump_time_slices
+        SET valid_until = v_deleted_slice_until
+        WHERE thread_id = OLD.thread_id AND valid_until = OLD.creation_time;
+
+        -- 4. Decrement post_count for all slices created after the deleted post
+        UPDATE thread_bump_time_slices
+        SET post_count = post_count - 1
+        WHERE thread_id = OLD.thread_id AND valid_from > OLD.creation_time;
+    END IF;
 
     RETURN NULL;
 END
 $$ LANGUAGE plpgsql;
 
 -- Fill the table for the first time
-WITH slices AS (
+WITH ordered_posts AS (
     SELECT
         p.thread_id,
         t.board_id,
-        p.creation_time AS valid_from,
-        LEAD(p.creation_time) OVER (PARTITION BY p.thread_id ORDER BY p.creation_time, p.post_id) AS valid_until,
         p.post_id,
-        COUNT(*) OVER (PARTITION BY p.thread_id ORDER BY p.creation_time, p.post_id) AS post_count
+        p.creation_time,
+        CASE 
+            -- The first post of a thread always bumps it (even if sage)
+            WHEN ROW_NUMBER() OVER (PARTITION BY p.thread_id ORDER BY p.creation_time, p.post_id) = 1 THEN 1
+            -- Subsequent posts only bump if they are not sage
+            WHEN p.sage = false THEN 1
+            ELSE 0
+        END as is_bump
     FROM posts p
     JOIN threads t ON p.thread_id = t.thread_id
+),
+slice_groups AS (
+    SELECT
+        thread_id,
+        board_id,
+        post_id,
+        creation_time,
+        is_bump,
+        -- Assign a unique slice ID to each "bump" and the subsequent sage posts
+        SUM(is_bump) OVER (PARTITION BY thread_id ORDER BY creation_time, post_id) as slice_id
+    FROM ordered_posts
+),
+slice_stats AS (
+    SELECT
+        thread_id,
+        slice_id,
+        MAX(board_id) as board_id,
+        MAX(post_id) FILTER (WHERE is_bump = 1) as bump_post_id,
+        MAX(creation_time) FILTER (WHERE is_bump = 1) as valid_from,
+        COUNT(*) as slice_post_count
+    FROM slice_groups
+    GROUP BY thread_id, slice_id
+),
+final_slices AS (
+    SELECT
+        thread_id,
+        board_id,
+        bump_post_id as post_id,
+        valid_from,
+        -- Cumulative post count up to the end of this slice
+        SUM(slice_post_count) OVER (PARTITION BY thread_id ORDER BY slice_id) as post_count,
+        -- The next bump's time is the end of this slice's validity
+        LEAD(valid_from) OVER (PARTITION BY thread_id ORDER BY slice_id) as valid_until
+    FROM slice_stats
 )
 INSERT INTO thread_bump_time_slices (thread_id, board_id, valid_from, valid_until, post_id, post_count)
 SELECT
@@ -142,7 +197,7 @@ SELECT
     COALESCE(valid_until, 'infinity'::timestamptz),
     post_id,
     post_count
-FROM slices
+FROM final_slices
 ON CONFLICT ON CONSTRAINT unique_bump_slice_thread_valid_until DO NOTHING;
 
 CREATE OR REPLACE TRIGGER trigger_bump_slice_insert_on_new_post
