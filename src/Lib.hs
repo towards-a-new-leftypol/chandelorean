@@ -295,8 +295,7 @@ addPostsToTuples tuples posts = map f posts
 fileToAttachment :: Int -> Posts.Post -> JS.File -> At.Attachment
 fileToAttachment i post file =
     At.Attachment
-        { At.attachment_id = undefined
-        , At.mimetype = maybe guessed_mime id (JS.mime file)
+        { At.mimetype = maybe guessed_mime id (JS.mime file)
         , At.creation_time = Posts.creation_time post
         , At.sha256_hash = undefined
         , At.phash = Nothing
@@ -447,8 +446,7 @@ parseLegacyPaths board post path_prefix = do
         mime = getMimeType ext
 
         attachment = At.Attachment
-            { At.attachment_id = undefined
-            , At.mimetype = mime
+            { At.mimetype = mime
             , At.creation_time = undefined
             , At.sha256_hash = undefined
             , At.phash = Nothing
@@ -490,8 +488,7 @@ parseExtraFiles board post json_post path_prefix (idx, extra_file) =
             return $ At.Dimension w h
 
         attachment = At.Attachment
-            { At.attachment_id = undefined
-            , At.mimetype = mime
+            { At.mimetype = mime
             , At.creation_time = Posts.creation_time post
             , At.sha256_hash = undefined
             , At.phash = Nothing
