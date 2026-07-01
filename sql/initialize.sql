@@ -526,19 +526,23 @@ RETURNS TABLE (
     thread_id bigint,
     board_thread_id bigint
 ) AS $$
-    SELECT DISTINCT ON (b.board_id) 
+    SELECT DISTINCT ON (b.board_id)
            b.board_id,
            b.site_id,
            b.pathpart,
            p.post_id,
            p.board_post_id,
            p.creation_time,
-           t.thread_id,
+           s.thread_id,
            t.board_thread_id
       FROM boards b
-      LEFT JOIN threads t ON t.board_id = b.board_id
-      LEFT JOIN posts   p ON p.thread_id = t.thread_id AND p.attachment_not_considered = false
-      ORDER BY b.board_id, p.creation_time DESC;
+      LEFT JOIN thread_bump_time_slices s
+        ON s.board_id = b.board_id
+      JOIN posts p
+        ON p.post_id = s.post_id
+       AND p.attachment_not_considered = false
+      LEFT JOIN threads t ON t.thread_id = s.thread_id
+     ORDER BY b.board_id, s.valid_from DESC NULLS LAST, s.thread_id DESC, p.post_id DESC;
 $$ LANGUAGE sql STABLE;
 
 
