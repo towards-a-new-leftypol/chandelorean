@@ -53,8 +53,8 @@ mkJsonSettings cs site = (consumerSettingsToPartialJSONSettings cs)
 
 
 threadMain :: S.ConsumerJSONSettings -> QE.BoardQueueElem -> IO QE.BoardQueueElem
-threadMain csmr_settings board_elem = do
-    putStrLn $ Board.pathpart $ QE.board board_elem
+threadMain csmr_settings boardElem = do
+    putStrLn $ Board.pathpart $ QE.board boardElem
 
     -- this is essentially the same as Lib.processBoard
     -- but uses ExceptT instead of IO, which saves us from writing all
@@ -62,24 +62,24 @@ threadMain csmr_settings board_elem = do
     -- once at the end.
     thread_results <- runExceptT $ do
         let
-            site = QE.site board_elem
-            board = QE.board board_elem
+            site = QE.site boardElem
+            board = QE.board boardElem
             settings = mkJsonSettings csmr_settings site
-            board_last_modified = QE.last_modified board_elem
-            api = chooseApi $ QE.client_api_type board_elem
+            board_last_modified = QE.last_modified boardElem
+            api = chooseApi $ QE.client_api_type boardElem
 
-        (API.ChangedThreadsResult changed_threads catalog_threads) <-
-            API.getChangedThreads api board_elem
+        (API.ChangedThreadsResult changedApiThreads allCatalogApiThreads) <-
+            API.getChangedThreads api boardElem
 
-        last_modified <- if null changed_threads
+        last_modified <- if null changedApiThreads
         then
             return board_last_modified
         else do
             -- changed plus new threads, so all the ones we need to fetch posts for
-            threads <- Lib2.saveNewThreads settings board changed_threads
+            threads <- Lib2.saveNewThreads settings board changedApiThreads
 
             web_posts :: [ (Thread.Thread, [ JSONPost.Post ]) ] <-
-                    API.getWebPosts api board_elem threads
+                    API.getWebPosts api boardElem threads
 
             posts <- Lib2.saveNewPosts settings web_posts
 
@@ -105,16 +105,16 @@ threadMain csmr_settings board_elem = do
             -- result is the most recent timestamp of all the posts we just saved
             return $ foldr max board_last_modified $ map Post.creation_time posts
 
-        Lib2.removeDeletedThreads settings board_elem catalog_threads
-        return (last_modified, Just catalog_threads)
+        Lib2.removeDeletedThreads settings boardElem allCatalogApiThreads
+        return (last_modified, Just allCatalogApiThreads)
 
     case thread_results of
         Left err -> do
-            putStrLn $ "Thread error occurred while processing " ++ show board_elem
+            putStrLn $ "Thread error occurred while processing " ++ show boardElem
             print err
-            return board_elem
+            return boardElem
         Right (max_t, current_catalog) ->
-            return board_elem { QE.last_modified = max_t, QE.last_catalog = current_catalog }
+            return boardElem { QE.last_modified = max_t, QE.last_catalog = current_catalog }
 
 
 mainLoop :: S.ConsumerJSONSettings -> PQ.Queue QE.BoardQueueElem -> IO ()
