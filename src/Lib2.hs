@@ -7,7 +7,6 @@ module Lib2
   , saveNewThreads
   , httpGetPostsJSON
   , httpGet
-  , saveNewPosts
   , saveNewAttachments
   , removeDeletedThreads
   , liftHttpIO
@@ -21,8 +20,6 @@ import qualified Data.Set as Set
 import qualified Data.Map as Map
 import Data.Aeson (FromJSON)
 import Data.Int (Int64)
-import Data.List (sortBy)
-import Data.Ord (comparing)
 import Data.Bifunctor (first)
 import Data.Maybe (fromJust, catMaybes)
 import Data.Text (Text)
@@ -134,56 +131,6 @@ saveNewThreads settings board web_threads = do
                 Client.postThreads settings archive_threads_to_create
 
     return $ existing_threads ++ new_threads
-
-
-saveNewPosts
-    :: JSONSettings
-    -> [ (Thread.Thread, [ JSONPost.Post ]) ]
-    -> IOe [ Posts.Post ]
-saveNewPosts settings thread_posts = do
-    existing_posts <- liftHttpIO $ Client.getPosts settings post_ids
-
-    thread_max_local_idx <- liftHttpIO $
-            Client.getThreadMaxLocalIdx settings thread_ids
-
-    let existing_set :: Set.Set (Int64, Int64) =
-            Set.fromList
-                (map (\x -> (Posts.thread_id x, Posts.board_post_id x))
-                existing_posts)
-
-    let tuples_to_insert :: [ (Thread.Thread, JSONPost.Post, Client.PostId) ] =
-            sortBy (comparing $ \(_, _, p) -> Client.board_post_id p) $
-                newPosts post_tuples existing_set
-
-    let local_idx :: Map.Map Int64 Int = Map.fromList thread_max_local_idx
-
-    let posts_to_insert :: [ Posts.Post ] =
-            fst $ foldl' Lib.localIndexFoldf ([], local_idx) tuples_to_insert
-
-    new_posts <- liftHttpIO $ Client.postPosts settings posts_to_insert
-
-    return $ existing_posts ++ new_posts
-
-    where
-        flat_posts = concatMap (\(i, j) -> map (i,) j) thread_posts
-
-        post_tuples = map
-            (\(i, j) -> (i, j, Client.PostId (Thread.thread_id i) (JSONPost.no j)))
-            flat_posts
-
-        post_ids = map (\(_, _, x) -> x) post_tuples
-
-        thread_ids :: [ Int64 ]
-        thread_ids = map (Thread.thread_id . fst) thread_posts
-
-        newPosts
-                :: [(Thread.Thread, JSONPost.Post, Client.PostId)]
-                -> Set.Set (Int64, Int64)
-                -> [(Thread.Thread, JSONPost.Post, Client.PostId)]
-        newPosts xs existing_set = filter (
-                \(_, _, c) ->
-                        Set.notMember (Client.thread_id c, Client.board_post_id c) existing_set
-                ) xs
 
 
 saveNewAttachments

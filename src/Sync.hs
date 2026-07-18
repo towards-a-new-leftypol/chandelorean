@@ -75,28 +75,42 @@ threadMain csmr_settings boardElem = do
         then
             return board_last_modified
         else do
-            -- changed plus new threads, so all the ones we need to fetch posts for
-            threads <- Lib2.saveNewThreads settings board changedApiThreads
+            let changedThreads = map
+                        (Lib.apiThreadToArchiveThread $ Board.board_id board)
+                        changedApiThreads
 
-            web_posts :: [ (Thread.Thread, [ JSONPost.Post ]) ] <-
-                    API.getWebPosts api boardElem threads
+            apiPosts :: [ (Thread.Thread, [ JSONPost.Post ]) ] <-
+                    API.getWebPosts api boardElem changedThreads
+        
+            -- -- changed plus new threads, so all the ones we need to fetch posts for
+            -- threads <- Lib2.saveNewThreads settings board changedApiThreads
 
-            posts <- Lib2.saveNewPosts settings web_posts
+            -- web_posts :: [ (Thread.Thread, [ JSONPost.Post ]) ] <-
+            --         API.getWebPosts api boardElem threads
 
-            let web_post_tuples
-                    :: [ (Site.Site, Board.Board, Thread.Thread, JSONPost.Post) ]
-                    = concatMap
-                        (\(t, ps) -> map (\p -> (site, board, t, p)) ps)
-                        web_posts
+            -- posts <- Lib2.saveNewPosts settings web_posts
 
-            let post_tuples = Lib.addPostsToTuples web_post_tuples posts
+            -- let web_post_tuples
+            --         :: [ (Site.Site, Board.Board, Thread.Thread, JSONPost.Post) ]
+            --         = concatMap
+            --             (\(t, ps) -> map (\p -> (site, board, t, p)) ps)
+            --             web_posts
 
-            Lib2.saveNewAttachments settings post_tuples
+            -- let post_tuples = Lib.addPostsToTuples web_post_tuples posts
 
-            _ <- Lib2.liftHttpIO $
-                    Client.updatePostAttachmentNotConsidered
-                        settings
-                        (map Thread.thread_id threads)
+            -- at this point the Post.thread_id is undefined, because it's undefined
+            -- in the thread because apiThreadToArchiveThread set its to undefined.
+            let changedThreadPosts =
+                    [ (t, map (\x -> (x, Lib.apiPostToArchivePost undefined t x)) jps)
+                    | (t, jps) <- apiPosts
+                    ] :: [ (Thread.Thread, [ (JSONPost.Post, Post.Post) ]) ]
+
+            -- Lib2.saveNewAttachments settings post_tuples
+
+            -- _ <- Lib2.liftHttpIO $
+            --         Client.updatePostAttachmentNotConsidered
+            --             settings
+            --             (map Thread.thread_id threads)
 
             -- So we also might want to build a service that http posts go to
             -- to signal new posts, and to also broadcast this out to everyone

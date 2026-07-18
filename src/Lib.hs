@@ -17,12 +17,9 @@ module Lib
     , ensureSiteExists
     , httpFileGetters
     , processFiles
-    , processBoards
-    , processBackupDirectory
     , SettingsCLI (..)
     , epochToUTCTime
     , apiThreadToArchiveThread
-    , localIndexFoldf
     , addPostsToTuples
     , Details
     , parseAttachments
@@ -32,22 +29,18 @@ module Lib
     , moveAttachmentAndThumb
     , makeThreadAttachmentFsPath
     , moveFile
+    , apiPostToArchivePost
     ) where
 
 import System.Exit
 import Data.Int (Int64)
-import Control.Monad (filterM)
 import System.Console.CmdArgs hiding (name)
 import System.Directory
-    ( listDirectory
-    , doesFileExist
-    , copyFile
-    , createDirectoryIfMissing
+    ( createDirectoryIfMissing
     , removeFile
     )
 import System.FilePath ((</>), (<.>), takeExtension)
-import Data.List (find, isSuffixOf, sortBy)
-import Data.Ord (comparing)
+import Data.List (find, isSuffixOf)
 import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
@@ -88,20 +81,6 @@ newtype SettingsCLI = SettingsCLI
 moveFile :: FilePath -> FilePath -> IO ()
 moveFile src dst =
     B.readFile src >>= B.writeFile dst >> removeFile src
-
-
-listCatalogDirectories :: J.JSONSettings -> IO [ FilePath ]
-listCatalogDirectories settings = do
-    allDirs <- listDirectory (J.backup_read_root settings)
-    let filteredDirs = filter (`notElem` excludedDirs) allDirs
-    filterM hasCatalog filteredDirs
-
-  where
-    excludedDirs = ["sfw", "alt", "overboard"]
-
-    hasCatalog dir = do
-      let catalogPath = J.backup_read_root settings </> dir </> "catalog.json"
-      doesFileExist catalogPath
 
 
 ensureSiteExists :: J.JSONSettings -> Either HttpError [ Sites.Site ] -> IO Sites.Site
@@ -175,79 +154,6 @@ apiThreadToArchiveThread board_id_ json_thread =
 
 epochToUTCTime :: Int -> UTCTime
 epochToUTCTime = posixSecondsToUTCTime . realToFrac
-
-
-createArchivesForNewThreads
-    :: J.JSONSettings
-    -> [ Thread ]
-    -> [ Threads.Thread ]
-    -> Boards.Board
-    -> IO [ Threads.Thread ]
-createArchivesForNewThreads settings all_threads archived_threads board = do
-    putStrLn $ "Creating " ++ show (length threads_to_create) ++ " threads."
-    threads_result <- Client.postThreads settings (map (apiThreadToArchiveThread board_id) threads_to_create)
-
-    case threads_result of
-        Left err -> do
-            putStrLn $ "Error creating threads: " ++ show err
-            exitFailure
-        Right new_threads -> return new_threads
-
-    where
-        board_id :: Int = Boards.board_id board
-
-        archived_board_thread_ids :: Set.Set Int64
-        archived_board_thread_ids =
-            Set.fromList $ map Threads.board_thread_id archived_threads
-
-        threads_to_create :: [ Thread ]
-        threads_to_create =
-            filter
-                ((`Set.notMember` archived_board_thread_ids) . no)
-                all_threads
-
-
-ensureThreads :: J.JSONSettings -> Boards.Board -> [ Thread ] -> IO [ Threads.Thread ]
-ensureThreads settings board all_threads = do
-    threads_result <- Client.getThreads settings (Boards.board_id board) (map no all_threads)
-
-    case threads_result of
-        Left err -> do
-            putStrLn $ "Error fetching threads: " ++ show err
-            exitFailure
-        Right archived_threads -> do
-            putStrLn $ show (length archived_threads) ++ " threads already exist."
-            new_threads <- createArchivesForNewThreads settings all_threads archived_threads board
-            return $ archived_threads ++ new_threads
-
-
-readPosts
-    :: FileGetters
-    -> Sites.Site
-    -> Boards.Board
-    -> Threads.Thread
-    -> IO (Threads.Thread, [ JSONPost.Post ])
-readPosts FileGetters {..} site board thread = do
-    result <- getJSONPosts site relative_path
-
-    case result of
-        Left err -> do
-            putStrLn $ "Failed to parse the JSON file " ++ relative_path ++ " error: " ++ err
-            putStrLn $ "Site: " ++ show site
-            return (thread, [])
-        Right posts_wrapper -> return (thread, JSONPost.posts posts_wrapper)
-
-    where
-        relative_path :: FilePath
-        relative_path = Boards.pathpart board </> "res" </> (show (Threads.board_thread_id thread) ++ ".json")
-
-
-apiPostToPostKey :: Threads.Thread -> JSONPost.Post -> Client.PostId
-apiPostToPostKey thread post =
-    Client.PostId
-        { Client.thread_id = (Threads.thread_id thread)
-        , Client.board_post_id = (JSONPost.no post)
-        }
 
 
 -- Convert Post to DbPost
@@ -636,66 +542,20 @@ insertRecord getKey accMap x =
     in Map.insert pid (x : l) accMap
 
 
-localIndexFoldf
-    :: ([Posts.Post], Map.Map Int64 Int)
-    -> (Threads.Thread, JSONPost.Post, Client.PostId)
-    -> ([Posts.Post], Map.Map Int64 Int)
-localIndexFoldf (posts, idx_map) (t, p, c) =
-    case Map.lookup thread_id idx_map of
-        Nothing -> (post 1       : posts, Map.insert thread_id 1       idx_map)
-        Just i  -> (post (i + 1) : posts, Map.insert thread_id (i + 1) idx_map)
-
-    where
-        post :: Int -> Posts.Post
-        post i = apiPostToArchivePost i t p
-
-        thread_id = Client.thread_id c
-
-
-createNewPosts
-    :: J.JSONSettings
-    -> [ (Threads.Thread, JSONPost.Post, Client.PostId) ]
-    -> IO [ Posts.Post ]
-createNewPosts settings tuples = do
-    existing_post_results <- Client.getPosts settings $ map (\(_, _, c) -> c) tuples
-    existing_posts <- either handleError return existing_post_results
-
-    thread_max_local_idx_result <- Client.getThreadMaxLocalIdx settings thread_ids
-    thread_max_local_idxs <- either handleError return thread_max_local_idx_result
-
-    let existing_set :: Set (Int64, Int64) = Set.fromList (map (\x -> (Posts.thread_id x, Posts.board_post_id x)) existing_posts)
-
-    let to_insert_list :: [ (Threads.Thread, JSONPost.Post, Client.PostId) ] =
-            sortBy (comparing $ \(_, _, p) -> Client.board_post_id p) $
-                newPosts tuples existing_set
-
-    -- Map of thread_id to the largest local_idx value (which would be the number of the last post in the thread)
-    let local_idx :: Map.Map Int64 Int = Map.fromList thread_max_local_idxs
-
-    let insert_posts :: [ Posts.Post ] = fst $ foldl' localIndexFoldf ([], local_idx) to_insert_list
-
-    -- posts to insert are the posts that are not in existing_posts
-    -- so we create a Set (thread_id, board_post_id) ✓
-    -- then check every tuples against the set and the ones not in the set get added to a to_insert_list ✓
-    -- also for every tuples we need to compute a local_idx
-    -- so we create a Map index_map from thread_id to local_idx ✓
-    --      - for existing_posts
-    --      - need to compare posts already in the map with another post and keep the max local_idx ✓
-    -- to get the new local_idx, we must order the to_insert_list by board_post_id, and look up each entry ✓
-
-    print insert_posts
-    posts_result <- Client.postPosts settings insert_posts
-    new_posts <- either handleError return posts_result
-    return $ existing_posts ++ new_posts
-
-    where
-        handleError err = print err >> exitFailure
-
-        thread_ids :: [ Int64 ]
-        thread_ids = Set.elems $ Set.fromList $ map (\(t, _, _) -> Threads.thread_id t) tuples
-
-        newPosts :: [(Threads.Thread, JSONPost.Post, Client.PostId)] -> Set (Int64, Int64) -> [(Threads.Thread, JSONPost.Post, Client.PostId)]
-        newPosts ts existing_set = filter (\(_, _, c) -> Set.notMember (Client.thread_id c, Client.board_post_id c) existing_set) ts
+-- localIndexFoldf
+--     :: ([Posts.Post], Map.Map Int64 Int)
+--     -> (Threads.Thread, JSONPost.Post, Client.PostId)
+--     -> ([Posts.Post], Map.Map Int64 Int)
+-- localIndexFoldf (posts, idx_map) (t, p, c) =
+--     case Map.lookup thread_id idx_map of
+--         Nothing -> (post 1       : posts, Map.insert thread_id 1       idx_map)
+--         Just i  -> (post (i + 1) : posts, Map.insert thread_id (i + 1) idx_map)
+-- 
+--     where
+--         post :: Int -> Posts.Post
+--         post i = apiPostToArchivePost i t p
+-- 
+--         thread_id = Client.thread_id c
 
 
 data FileGetters = FileGetters
@@ -705,115 +565,6 @@ data FileGetters = FileGetters
     , attachmentPaths :: At.Paths -> IO (Maybe At.Paths)
     , copyOrMove :: String -> (String, String) -> (Maybe String, String) -> IO ()
     }
-
-
-localFileGetters :: J.JSONSettings -> FileGetters
-localFileGetters settings = FileGetters
-    { getJSONCatalog = const $ parseJSONCatalog . withRoot
-    , getJSONPosts = const $ parsePosts . withRoot
-    , addPathPrefix = ((++) $ J.backup_read_root settings)
-    , attachmentPaths = \p -> do
-        exists <- doesFileExist (At.file_path p)
-        if exists then return (Just p) else return Nothing
-    , copyOrMove = \common_dest (src, dest) (m_thumb_src, thumb_dest) -> do
-        destination_exists <- doesFileExist dest
-
-        if not destination_exists
-        then do
-            src_exists <- doesFileExist src
-
-            createDirectoryIfMissing True common_dest
-
-            if src_exists
-            then putStrLn ("Copying " ++ src) >> copyFile src dest
-            else return ()
-
-            case m_thumb_src of
-                Nothing -> return ()
-                Just thumb_src -> do
-                    thumb_exists <- doesFileExist thumb_src
-
-                    if thumb_exists
-                    then putStrLn ("Copying " ++ thumb_src) >> copyFile thumb_src thumb_dest
-                    else return ()
-
-        else return ()
-    }
-
-    where
-        withRoot = (J.backup_read_root settings </>)
-
-
--- This one is not designed to run concurrently
-processBoard :: J.JSONSettings -> FileGetters -> Sites.Site -> Boards.Board -> IO ()
-processBoard settings fgs@FileGetters {..} site board = do
-    let catalogPath = Boards.pathpart board </> "catalog.json"
-    putStrLn $ "catalog file path: " ++ catalogPath
-
-    result <- getJSONCatalog site catalogPath
-
-    case result of
-        Right (catalogs :: [ Catalog ]) -> do
-            let threads_on_board = concatMap ((maybe [] id) . threads) catalogs
-
-            all_threads_for_board :: [ Threads.Thread ] <- ensureThreads settings board threads_on_board
-
-            all_posts_on_board :: [(Threads.Thread, [ JSONPost.Post ])] <- mapM (readPosts fgs site board) all_threads_for_board
-
-            let tuples :: [(Sites.Site, Boards.Board, Threads.Thread, JSONPost.Post)] = concatMap
-                    (\(t, posts) -> map (\p -> (site, board, t, p)) posts)
-                    all_posts_on_board
-
-            posts_result :: [ Posts.Post ] <- createNewPosts settings (map (\(_, _, c, d) -> (c, d, apiPostToPostKey c d)) tuples)
-
-            putStrLn "Sum of post_ids:"
-            print $ sum $ map (fromJust . Posts.post_id) posts_result
-            putStrLn "Sum of board_post_ids:"
-            print $ sum $ map Posts.board_post_id posts_result
-
-            let perfect_post_pairs = addPostsToTuples tuples posts_result
-
-            processFiles settings fgs perfect_post_pairs
-
-        Left errMsg    ->
-            putStrLn $ "Failed to parse the JSON file in directory: "
-                ++ (Boards.pathpart board) ++ ". Error: " ++ errMsg
-
-
-getBoards :: J.JSONSettings -> [ FilePath ] -> IO (Sites.Site, [ Boards.Board ])
-getBoards settings board_names = do
-    sitesResult <- Client.getAllSites settings
-    site :: Sites.Site <- ensureSiteExists settings sitesResult
-
-    let boardsSet = Set.fromList board_names
-    let site_id_ = Sites.site_id site
-    boards_result <- Client.getSiteBoards settings site_id_
-    putStrLn "Boards fetched!"
-
-    case boards_result of
-        Left err -> do
-            putStrLn $ "Error fetching boards: " ++ show err
-            exitFailure
-        Right archived_boards -> do
-            let boardnames = map Boards.pathpart archived_boards
-            created_boards <- createArchivesForNewBoards settings boardsSet boardnames site_id_
-            let boards :: [ Boards.Board ] = archived_boards ++ created_boards
-            let boards_we_have_data_for = filter (\board -> Set.member (Boards.pathpart board) boardsSet) boards
-            return (site, boards_we_have_data_for)
-
-
-processBoards :: J.JSONSettings -> FileGetters -> [ FilePath ] -> IO ()
-processBoards settings fgs board_names =
-    getBoards settings board_names >>= \(site, boards) ->
-        mapM_ (processBoard settings fgs site) boards
-
-
-processBackupDirectory :: J.JSONSettings -> IO ()
-processBackupDirectory settings = do
-    putStrLn "JSON successfully read!"
-    print settings  -- print the decoded JSON settings
-    boards <- listCatalogDirectories settings
-    processBoards settings (localFileGetters settings) boards
 
 
 toClientSettings :: CS.ConsumerJSONSettings -> CS.JSONSiteSettings -> J.JSONSettings
@@ -866,7 +617,11 @@ httpFileGetters settings = FileGetters
     }
 
 
-moveAttachmentAndThumb :: String -> (String, String) -> (Maybe String, String) -> IO ()
+moveAttachmentAndThumb
+    :: String
+    -> (String, String)
+    -> (Maybe String, String)
+    -> IO ()
 moveAttachmentAndThumb common_dest (src, dest) (m_thumb_src, thumb_dest) = do
     putStrLn $ "Copy Or Move (Move) src: " ++ src ++ " dest: " ++ dest
     createDirectoryIfMissing True common_dest

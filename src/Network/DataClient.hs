@@ -14,7 +14,6 @@ module Network.DataClient
   , getThreads
   , getThreadMaxLocalIdx
   , postThreads
-  , getPosts
   , postPosts
   , getAttachments
   , postAttachments
@@ -25,6 +24,7 @@ module Network.DataClient
   , updatePostAttachmentNotConsidered
   , get_ -- from Common.Network.HttpClient
   , getAllAttachmentsPaged
+  , getPostIdsByBoardIds
   ) where
 
 import Control.Monad (forM)
@@ -45,6 +45,7 @@ import Data.Aeson
 import GHC.Generics
 import System.IO.Temp (openBinaryTempFile, getCanonicalTemporaryDirectory)
 import System.IO (hClose)
+import Data.Bifunctor (second)
 
 import qualified Common.Server.JSONSettings as T
 import qualified SitesType as Sites
@@ -59,10 +60,8 @@ import qualified Common.Network.SiteType as Site
 import Common.Parsing.FlexibleJsonResponseParser as Flx
 
 
-data PostId = PostId
-    { thread_id     :: Int64
-    , board_post_id :: Int64
-    } deriving (Show, Generic, ToJSON)
+data PostId = PostId { post_id :: Int64 }
+    deriving (Show, Generic, ToJSON, FromJSON)
 
 getSiteBoards :: T.JSONSettings -> Int -> IO (Either HttpError [ Boards.Board ])
 getSiteBoards settings site_id_ = eitherDecodeResponse <$>
@@ -159,6 +158,7 @@ chunkList _ [] = []
 chunkList n xs = let (chunk, rest) = splitAt n xs in chunk : chunkList n rest
 
 
+-- TODO: idk if we need this anymore!
 getAttachments :: T.JSONSettings -> [Int64] -> IO (Either HttpError [Attachments.Attachment])
 getAttachments settings post_ids = do
     results <- forM (chunkList chunkSize post_ids) (getAttachmentsChunk settings)
@@ -175,6 +175,7 @@ combineResults results =
         (err:_) -> Left err
 
 
+-- TODO: idk if we need this anymore!
 -- | Function to handle each chunk.
 getAttachmentsChunk :: T.JSONSettings -> [Int64] -> IO (Either HttpError [Attachments.Attachment])
 getAttachmentsChunk settings chunk = eitherDecodeResponse <$>
@@ -210,23 +211,44 @@ postAttachments settings attachments = eitherDecodeResponse <$>
         payload = encode attachments
 
 
--- | Function to handle each chunk.
-getPostsChunk :: T.JSONSettings -> [ PostId ] -> IO (Either HttpError [ Posts.Post ])
-getPostsChunk settings chunk = eitherDecodeResponse <$>
-    post settings "/rpc/get_posts" payload False
+-- -- TODO: this can be deleted
+-- -- | Function to handle each chunk.
+-- getPostsChunk :: T.JSONSettings -> [ PostId ] -> IO (Either HttpError [ Posts.Post ])
+-- getPostsChunk settings chunk = eitherDecodeResponse <$>
+--     post settings "/rpc/get_posts" payload False
+-- 
+--     where
+--         payload = encode $ object [ "board_posts" .= chunk ]
+-- 
+-- 
+-- -- TODO: this can be deleted
+-- getPosts :: T.JSONSettings -> [ PostId ] -> IO (Either HttpError [ Posts.Post ])
+-- getPosts settings xs = do
+--     results <- forM (chunkList chunkSize xs) (getPostsChunk settings)
+--     return $ combineResults results
+-- 
+--   where
+--     chunkSize = 1000
+
+-- | Get post_ids based on the board_id and a list of board_post_ids
+getPostIdsChunk :: T.JSONSettings -> Int -> [ Int64 ] -> IO (Either HttpError [ PostId ])
+getPostIdsChunk settings board_id board_post_ids = eitherDecodeResponse <$>
+    get settings path
 
     where
-        payload = encode $ object [ "board_posts" .= chunk ]
+        path = "/posts?select=post_id,threads:thread_id!inner()&board_post_id=in.("
+            ++ intercalate "," (map show board_post_ids)
+            ++ ")&threads.board_id=eq." ++ show board_id
 
+getPostIdsByBoardIds :: T.JSONSettings -> Int -> [ Int64 ] -> IO (Either HttpError [ Int64 ] )
+getPostIdsByBoardIds settings board_id board_post_ids = do
+    results <- forM
+        (chunkList chunkSize board_post_ids)
+        (getPostIdsChunk settings board_id)
+    return $ second (map post_id) (combineResults results)
 
-getPosts :: T.JSONSettings -> [ PostId ] -> IO (Either HttpError [ Posts.Post ])
-getPosts settings xs = do
-    results <- forM (chunkList chunkSize xs) (getPostsChunk settings)
-    return $ combineResults results
-
-  where
-    chunkSize = 1000
-
+    where
+        chunkSize = 1000
 
 postPosts
     :: T.JSONSettings

@@ -87,10 +87,10 @@ CREATE TABLE IF NOT EXISTS posts
     , CONSTRAINT thread_fk FOREIGN KEY (thread_id) REFERENCES threads (thread_id) ON DELETE CASCADE
     , CONSTRAINT unique_thread_local_idx UNIQUE (thread_id, local_idx)
     );
-ALTER TABLE posts ADD COLUMN attachment_not_considered boolean NOT NULL DEFAULT false;
+ALTER TABLE posts ADD COLUMN attachment_not_considered boolean NOT NULL DEFAULT false; -- TODO: this can be deleted
 -- Add the 'sage' column with the default value
 ALTER TABLE posts ADD COLUMN sage boolean NOT NULL DEFAULT false;
-CREATE INDEX posts_attachment_not_considered_idx ON posts (attachment_not_considered);
+CREATE INDEX posts_attachment_not_considered_idx ON posts (attachment_not_considered); -- TODO: this can be deleted
 CREATE INDEX posts_sage_idx          ON posts (sage);
 CREATE INDEX posts_creation_time_idx ON posts (creation_time);
 CREATE INDEX posts_body_search_idx   ON posts USING GIN (body_search_index);
@@ -357,11 +357,13 @@ $$ LANGUAGE sql;
 -- 1:21 for full db (nothing inserted)
 
 
+-- TODO: this can be deleted
 CREATE TYPE post_key AS
     ( thread_id bigint
     , board_post_id bigint
     );
 
+-- TODO: this can be deleted
 CREATE OR REPLACE FUNCTION get_posts(board_posts post_key[])
 RETURNS SETOF posts AS $$
 
