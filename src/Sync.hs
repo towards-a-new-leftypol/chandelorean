@@ -15,6 +15,7 @@ import Control.Concurrent.STM (atomically, retry)
 import Control.Concurrent (threadDelay, forkFinally)
 import System.Random (StdGen, getStdGen)
 import Control.Monad.Trans.Except (runExceptT)
+import Data.Maybe (catMaybes)
 
 import qualified Common.Server.ConsumerSettings as S
 import qualified Common.Server.JSONSettings as JS
@@ -105,6 +106,40 @@ threadMain csmr_settings boardElem = do
                     | (t, jps) <- apiPosts
                     ] :: [ (Thread.Thread, [ (JSONPost.Post, Post.Post) ]) ]
 
+            -- TODO:
+            -- - use liftHttpIO Client.getPostIdsByBoardIds to test which changedThreadPosts
+            --   are in the db ✓
+            -- - use Lib2.downloadAttachment to get all the missing attachments ✓
+            --      - need to figure out whether or not to use liftHttpIO here, the old code doesn't do this, it seems to try and get as many as possible
+            -- - create http client for SpamNoticer based on the php one
+            -- - filter the list of posts using SpamNoticer
+            -- - insert (with header Prefer: resolution=ignore-duplicates) all the threads into db
+            -- - insert all the posts into the db
+            -- - it looks like the old code
+
+            existingBoardPostIds <- Lib2.liftHttpIO $
+                Client.getPostIdsByBoardIds
+                    settings
+                    (Board.board_id board)
+                    [ Post.board_post_id p
+                    | (_, xs) <- changedThreadPosts
+                    , (_, p) <- xs
+                    ]
+
+            let
+                existingBoardPostIdSet = Set.fromList existingBoardPostIds
+                missingPostsDetails =
+                    [ d
+                    | (t, xs) <- changedThreadPosts
+                    , (jp, p) <- xs
+                    , Set.notMember (Post.board_post_id p) existingBoardPostIdSet
+                    , d <- Lib.parseAttachments (JS.site_url settings) (site, board, t, jp, p)
+                    ] :: [ Lib.Details ]
+
+            savedAttachmentDetails :: [ Lib.Details ] <- catMaybes <$> mapM
+                (Lib2.liftHttpIO . Lib2.downloadAttachment)
+                missingPostsDetails
+
             -- Lib2.saveNewAttachments settings post_tuples
 
             -- _ <- Lib2.liftHttpIO $
@@ -117,7 +152,8 @@ threadMain csmr_settings boardElem = do
             -- that connects.
 
             -- result is the most recent timestamp of all the posts we just saved
-            return $ foldr max board_last_modified $ map Post.creation_time posts
+            -- return $ foldr max board_last_modified $ map Post.creation_time posts
+            return $ foldr max board_last_modified $ map Post.creation_time undefined
 
         Lib2.removeDeletedThreads settings boardElem allCatalogApiThreads
         return (last_modified, Just allCatalogApiThreads)

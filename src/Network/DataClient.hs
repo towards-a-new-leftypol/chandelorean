@@ -45,7 +45,6 @@ import Data.Aeson
 import GHC.Generics
 import System.IO.Temp (openBinaryTempFile, getCanonicalTemporaryDirectory)
 import System.IO (hClose)
-import Data.Bifunctor (second)
 
 import qualified Common.Server.JSONSettings as T
 import qualified SitesType as Sites
@@ -60,7 +59,7 @@ import qualified Common.Network.SiteType as Site
 import Common.Parsing.FlexibleJsonResponseParser as Flx
 
 
-data PostId = PostId { post_id :: Int64 }
+data PostId = PostId { board_post_id :: Int64 }
     deriving (Show, Generic, ToJSON, FromJSON)
 
 getSiteBoards :: T.JSONSettings -> Int -> IO (Either HttpError [ Boards.Board ])
@@ -236,16 +235,17 @@ getPostIdsChunk settings board_id board_post_ids = eitherDecodeResponse <$>
     get settings path
 
     where
-        path = "/posts?select=post_id,threads:thread_id!inner()&board_post_id=in.("
+        path = "/posts?select=board_post_id,threads:thread_id!inner()&board_post_id=in.("
             ++ intercalate "," (map show board_post_ids)
             ++ ")&threads.board_id=eq." ++ show board_id
+            ++ "&attachment_not_considered=eq.false"
 
 getPostIdsByBoardIds :: T.JSONSettings -> Int -> [ Int64 ] -> IO (Either HttpError [ Int64 ] )
 getPostIdsByBoardIds settings board_id board_post_ids = do
     results <- forM
         (chunkList chunkSize board_post_ids)
         (getPostIdsChunk settings board_id)
-    return $ second (map post_id) (combineResults results)
+    return $ (map board_post_id) <$> (combineResults results)
 
     where
         chunkSize = 1000

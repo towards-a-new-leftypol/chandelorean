@@ -11,6 +11,7 @@ module Lib2
   , removeDeletedThreads
   , liftHttpIO
   , postHasAttachments
+  , downloadAttachment
   , IOe
   ) where
 
@@ -141,7 +142,7 @@ saveNewAttachments settings post_tuples = do
     db_attachments <-
         let posts = map
                 (\(_, _, _, _, x) -> x)
-                (filter (\(_, _, _, x, _) -> Lib2.postHasAttachments x) post_tuples)
+                (filter (\(_, _, _, x, _) -> postHasAttachments x) post_tuples)
         in
             liftHttpIO $
                 Client.getAttachments
