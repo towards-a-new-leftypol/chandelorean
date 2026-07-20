@@ -96,6 +96,7 @@ executable chan-delorean-consoomer
                       Common.Network.PostType
                       Common.Network.SiteType
                       Common.Network.ThreadType
+                      Network.SpamNoticer
                       CliSettings
 
 
