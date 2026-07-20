@@ -25,6 +25,7 @@ module Network.DataClient
   , get_ -- from Common.Network.HttpClient
   , getAllAttachmentsPaged
   , getPostIdsByBoardIds
+  , eitherDecodeResponse
   ) where
 
 import Control.Monad (forM)
