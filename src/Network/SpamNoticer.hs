@@ -5,7 +5,7 @@
 module Network.SpamNoticer where
 
 import GHC.Generics
-import Data.Aeson (ToJSON, FromJSON, Value)
+import Data.Aeson (ToJSON, FromJSON, Value, encode)
 import Data.Text (Text)
 import Data.Time.Clock (UTCTime)
 import Data.Int (Int64)
@@ -17,7 +17,11 @@ import Network.HTTP.Simple
     )
 
 import Common.Network.HttpClient (HttpError, handleHttp)
-import Network.HTTP.Client.MultipartFormData (formDataBody)
+import Network.HTTP.Client.MultipartFormData
+    ( formDataBody
+    , partLBS
+    , partFileSource
+    )
 import Network.DataClient (eitherDecodeResponse)
 
 data SpamNoticerAttachmentMetadata =
@@ -55,15 +59,16 @@ data SpamNoticerSettings =
 askNoticer
     :: SpamNoticerSettings
     -> SpamNoticerRequestInfo
+    -> [ FilePath ]
     -> IO (Either HttpError SpamNoticerResponse)
-askNoticer settings requestInfo = do
+askNoticer settings requestInfo attachmentPaths = do
     req <- parseRequest url
 
     let httpRequest = setRequestMethod "POST"
             . setRequestHeader "Content-Type" [ "application/json" ]
             $ req
 
-    request <- formDataBody [] httpRequest
+    request <- formDataBody (jsonPart : attachmentParts) httpRequest
 
     putStrLn $ "POSTing SpamNoticer query to" ++ url
 
@@ -73,3 +78,7 @@ askNoticer settings requestInfo = do
         url = base_url settings ++ path
 
         path = "/"
+
+        jsonPart = partLBS "json" $ encode requestInfo
+
+        attachmentParts = map (partFileSource "attachments") attachmentPaths
