@@ -7,12 +7,12 @@ module Lib2
   , saveNewThreads
   , httpGetPostsJSON
   , httpGet
-  , saveNewAttachments
   , removeDeletedThreads
   , liftHttpIO
   , postHasAttachments
   , downloadAttachment
   , IOe
+  , groupDetails
   ) where
 
 import Control.Monad.Trans.Except (ExceptT (..))
@@ -22,12 +22,10 @@ import qualified Data.Map as Map
 import Data.Aeson (FromJSON)
 import Data.Int (Int64)
 import Data.Bifunctor (first)
-import Data.Maybe (fromJust, catMaybes)
-import Data.Text (Text)
+import Data.Maybe (fromJust)
 import System.Directory (removeDirectoryRecursive, doesDirectoryExist)
 import Control.Monad.IO.Class (liftIO)
 import Control.Monad (when, unless)
-import Data.Either (partitionEithers)
 import qualified Data.ByteString.Lazy as LBS
 
 import qualified Network.DataClient as Client
@@ -39,7 +37,6 @@ import qualified Network.Api.JSONPost as JSONPost
 import qualified ThreadType as Thread
 import qualified Common.PostsType as Posts
 import Common.Server.JSONSettings (JSONSettings)
-import qualified Common.Server.JSONSettings as JSettgs
 import qualified Common.AttachmentType as At
 import qualified Lib
 import qualified BoardQueueElem as QE
@@ -134,71 +131,71 @@ saveNewThreads settings board web_threads = do
     return $ existing_threads ++ new_threads
 
 
-saveNewAttachments
-    :: JSONSettings
-    -> [(Sites.Site, Boards.Board, Thread.Thread, JSONPost.Post, Posts.Post)]
-    -> IOe ()
-saveNewAttachments settings post_tuples = do
-    db_attachments <-
-        let posts = map
-                (\(_, _, _, _, x) -> x)
-                (filter (\(_, _, _, x, _) -> postHasAttachments x) post_tuples)
-        in
-            liftHttpIO $
-                Client.getAttachments
-                    settings
-                    (map (fromJust . Posts.post_id) posts)
-
-    let existing_attachment_map :: Map.Map (Int64, Text) [ At.Attachment ] =
-            Map.fromListWith
-                (++)
-                [ ((At.post_id a, At.board_filename a), [a])
-                | a <- db_attachments
-                ]
-
-    let attachments_on_board :: [ Lib.Details ] =
-            concatMap
-                (Lib.parseAttachments (JSettgs.site_url settings))
-                post_tuples
-
-    let attachments_on_board_map =
-            Map.fromListWith
-                (++)
-                [ ((At.post_id a, At.board_filename a), [x])
-                | x@(_, _, _, _, _, a) <- attachments_on_board
-                ]
-
-    let to_insert = concat $ Map.elems $ attachments_on_board_map `Map.difference` existing_attachment_map
-
-    attachment_download_results <- liftIO $ mapM downloadAttachment to_insert
-
-    let (errs, attachment_details_) = partitionEithers attachment_download_results
-
-    let continue = do
-            let attachment_details = catMaybes attachment_details_
-
-            new_attachments <- mapM (liftIO . Lib.computeAttachmentHash) attachment_details
-
-            _ {- posted_attachments -} <- liftHttpIO $ Client.postAttachments settings new_attachments
-
-            liftIO $
-                mapM_
-                    (Lib.copyOrMoveFiles settings Lib.moveAttachmentAndThumb)
-                    attachment_details
-
-
-    if null errs
-    then
-        continue
-    else do
-        liftIO $ mapM_ print errs
-        continue
-        ExceptT $ pure $ Left $ HttpException $ head errs
+-- saveNewAttachments
+--     :: JSONSettings
+--     -> [(Sites.Site, Boards.Board, Thread.Thread, JSONPost.Post, Posts.Post)]
+--     -> IOe ()
+-- saveNewAttachments settings post_tuples = do
+--     db_attachments <-
+--         let posts = map
+--                 (\(_, _, _, _, x) -> x)
+--                 (filter (\(_, _, _, x, _) -> postHasAttachments x) post_tuples)
+--         in
+--             liftHttpIO $
+--                 Client.getAttachments
+--                     settings
+--                     (map (fromJust . Posts.post_id) posts)
+-- 
+--     let existing_attachment_map :: Map.Map (Int64, Text) [ At.Attachment ] =
+--             Map.fromListWith
+--                 (++)
+--                 [ ((At.post_id a, At.board_filename a), [a])
+--                 | a <- db_attachments
+--                 ]
+-- 
+--     let attachments_on_board :: [ Lib.Details ] =
+--             concatMap
+--                 (Lib.parseAttachments (JSettgs.site_url settings))
+--                 post_tuples
+-- 
+--     let attachments_on_board_map =
+--             Map.fromListWith
+--                 (++)
+--                 [ ((At.post_id a, At.board_filename a), [x])
+--                 | x@(_, _, _, _, _, a) <- attachments_on_board
+--                 ]
+-- 
+--     let to_insert = concat $ Map.elems $ attachments_on_board_map `Map.difference` existing_attachment_map
+-- 
+--     attachment_download_results <- liftIO $ mapM downloadAttachment to_insert
+-- 
+--     let (errs, attachment_details_) = partitionEithers attachment_download_results
+-- 
+--     let continue = do
+--             let attachment_details = catMaybes attachment_details_
+-- 
+--             new_attachments <- mapM (liftIO . Lib.computeAttachmentHash) attachment_details
+-- 
+--             _ {- posted_attachments -} <- liftHttpIO $ Client.postAttachments settings new_attachments
+-- 
+--             liftIO $
+--                 mapM_
+--                     (Lib.copyOrMoveFiles settings Lib.moveAttachmentAndThumb)
+--                     attachment_details
+-- 
+-- 
+--     if null errs
+--     then
+--         continue
+--     else do
+--         liftIO $ mapM_ print errs
+--         continue
+--         ExceptT $ pure $ Left $ HttpException $ head errs
 
 
 -- Downloads attachment and thumbnail to temporary files, and returns their paths.
 downloadAttachment :: Lib.Details -> IO (Either HttpError (Maybe Lib.Details))
-downloadAttachment (a, b, c, d, paths, f) = do
+downloadAttachment (a, b, c, d, Just (paths, f)) = do
     result <- do
         file_result <- Client.getFile (At.file_path paths)
 
@@ -218,7 +215,9 @@ downloadAttachment (a, b, c, d, paths, f) = do
                                 return $ Right $ Just $ At.Paths filepath Nothing
                             Right thumb_path -> return $ Right $ Just $ At.Paths filepath $ Just thumb_path
 
-    return $ result >>= maybe (Right Nothing) (Right . Just . (\y -> (a, b, c, d, y, f)))
+    return $ result >>= maybe (Right Nothing) (Right . Just . (\y -> (a, b, c, d, Just (y, f))))
+
+downloadAttachment _ = return $ Right Nothing
 
 
 -- Only run this after syncing all of the threads on the board successfully
@@ -269,3 +268,14 @@ postHasAttachments :: JSONPost.Post -> Bool
 postHasAttachments JSONPost.Post { JSONPost.files = Just _ } = True
 postHasAttachments JSONPost.Post { JSONPost.filename = Just _ } = True
 postHasAttachments _ = False
+
+
+groupDetails :: [ Lib.Details ] -> [ (Thread.Thread, [ (Posts.Post, [ Lib.Details ]) ]) ]
+groupDetails deets =
+    Map.toList $
+        Map.toList <$>
+            foldMap
+                (\x@(_, _, t, p, _) ->
+                    Map.singleton t (Map.singleton p [x])
+                )
+                deets

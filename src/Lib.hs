@@ -16,14 +16,12 @@ module Lib
     , createArchivesForNewBoards
     , ensureSiteExists
     , httpFileGetters
-    , processFiles
     , SettingsCLI (..)
     , epochToUTCTime
     , apiThreadToArchiveThread
     , addPostsToTuples
     , Details
     , parseAttachments
-    , insertRecord
     , computeAttachmentHash
     , copyOrMoveFiles
     , moveAttachmentAndThumb
@@ -46,7 +44,7 @@ import Data.Set (Set)
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import Data.Time.Clock (UTCTime)
 import qualified Data.Map as Map
-import Data.Maybe (fromJust, catMaybes)
+import Data.Maybe (fromJust)
 import Data.Text (Text, unpack, toLower)
 import qualified Data.Text as T
 import Data.Text.Encoding (decodeUtf8)
@@ -259,7 +257,7 @@ copyOrMoveFiles
     -> (String -> (String, String) -> (Maybe String, String) -> IO ())
     -> Details
     -> IO ()
-copyOrMoveFiles settings copyOrMove (site, board, thread, _, path, attachment) = do
+copyOrMoveFiles settings copyOrMove (site, board, thread, _, Just (path, attachment)) = do
     copyOrMove common_dest (src, dest) (thumb_src, thumb_dest)
 
     -- src = (At.file_path | At.thumb_path)
@@ -285,8 +283,10 @@ copyOrMoveFiles settings copyOrMove (site, board, thread, _, path, attachment) =
         common_dest :: FilePath
         common_dest = makeThreadAttachmentFsPath settings site board (Threads.board_thread_id thread)
 
+copyOrMoveFiles _ _ _ = return ()
 
-type Details = (Sites.Site, Boards.Board, Threads.Thread, Posts.Post, At.Paths, At.Attachment)
+
+type Details = (Sites.Site, Boards.Board, Threads.Thread, Posts.Post, Maybe (At.Paths, At.Attachment))
 
 
 parseAttachments
@@ -301,13 +301,15 @@ parseAttachments path_prefix (site, board, thread, p, q) = filter notDeleted $
                 , board
                 , thread
                 , q
-                , At.Paths (path_prefix ++ (unpack $ JS.file_path x)) (Just $ path_prefix ++ (unpack $ JS.thumb_path x))
-                , fileToAttachment i q x
+                , Just
+                    ( At.Paths (path_prefix ++ (unpack $ JS.file_path x)) (Just $ path_prefix ++ (unpack $ JS.thumb_path x))
+                    , fileToAttachment i q x
+                    )
                 )
             ) (zip [1..] files)
         Nothing ->
             case parseLegacyPaths board p path_prefix of
-                Nothing -> []
+                Nothing -> [(site, board, thread, q, Nothing)]
                 Just (paths, a) ->
                     let dim = do
                             w <- JSONPost.w p
@@ -318,20 +320,23 @@ parseAttachments path_prefix (site, board, thread, p, q) = filter notDeleted $
                         , board
                         , thread
                         , q
-                        , paths
-                        , a
-                            { At.creation_time = Posts.creation_time q
-                            , At.resolution = dim
-                            , At.post_id = fromJust $ Posts.post_id q
-                            }
+                        , Just
+                            ( paths
+                            , a
+                                { At.creation_time = Posts.creation_time q
+                                , At.resolution = dim
+                                , At.post_id = fromJust $ Posts.post_id q
+                                }
+                            )
                         ) : (
-                                (map $ (\(x, y) -> (site, board, thread, q, x, y)) . (parseExtraFiles board q p path_prefix))
+                                (map $ (\(x, y) -> (site, board, thread, q, Just (x, y))) . (parseExtraFiles board q p path_prefix))
                                 (zip [2..] $ maybe [] id $ JSONPost.extra_files p)
                             )
 
     where
-        notDeleted :: (a, b, c, d, At.Paths, At.Attachment) -> Bool
-        notDeleted (_, _, _, _, paths, _) = not $ "deleted" `isSuffixOf` (At.file_path paths)
+        notDeleted :: Lib.Details -> Bool
+        notDeleted (_, _, _, _, Just (paths, _)) = not $ "deleted" `isSuffixOf` (At.file_path paths)
+        notDeleted _ = True
 
 
 parseLegacyPaths :: Boards.Board -> JSONPost.Post -> String -> Maybe (At.Paths, At.Attachment)
@@ -414,8 +419,8 @@ parseExtraFiles board post json_post path_prefix (idx, extra_file) =
         (p, attachment)
 
 
-computeAttachmentHash :: Details -> IO At.Attachment
-computeAttachmentHash (_, _, _, _, p, q) = do
+computeAttachmentHash :: At.Paths -> At.Attachment -> IO At.Attachment
+computeAttachmentHash p q = do
     let f = At.file_path p
 
     putStrLn $ "Reading " ++ f
@@ -463,83 +468,83 @@ computeAttachmentHash (_, _, _, _, p, q) = do
         }
 
 
-processFiles
-    :: J.JSONSettings
-    -> FileGetters
-    -> [(Sites.Site, Boards.Board, Threads.Thread, JSONPost.Post, Posts.Post)]
-    -> IO ()
-processFiles settings fgs tuples = do -- perfect just means that our posts have ids, they're already inserted into the db
-    let ps = map (\(_, _, _, _, x) -> x) tuples
+-- processFiles
+--     :: J.JSONSettings
+--     -> FileGetters
+--     -> [(Sites.Site, Boards.Board, Threads.Thread, JSONPost.Post, Posts.Post)]
+--     -> IO ()
+-- processFiles settings fgs tuples = do -- perfect just means that our posts have ids, they're already inserted into the db
+--     let ps = map (\(_, _, _, _, x) -> x) tuples
+-- 
+--     existing_attachments_result <- Client.getAttachments settings (map (fromJust . Posts.post_id) ps)
+-- 
+--     case existing_attachments_result of
+--         Left err -> do
+--             putStrLn $ "Error fetching attachments: " ++ show err
+--             exitFailure
+--         Right existing_attachments -> do
+--             let map_existing :: Map.Map (Int64, Text) [ At.Attachment ] =
+--                     foldl'
+--                         (insertRecord (\a -> (At.post_id a, At.board_filename a)))
+--                         Map.empty
+--                         existing_attachments
+-- 
+--             let attachments_on_board :: [ Details ] =
+--                     concatMap (parseAttachments path_prefix) tuples
+--             -- attachments_on_board are the only files that can be copied into the archive dir right now
+--             -- since that's where we have the src filename. except here the Attachment doesn't have a sha hash yet
+--             -- so we can't build the destination filename.
+-- 
+--             let map_should_exist :: Map.Map (Int64, Text) [ Details ] =
+--                     foldl'
+--                         (insertRecord (\(_, _, _, _, _, a) -> (At.post_id a, At.board_filename a)))
+--                         Map.empty
+--                         attachments_on_board
+-- 
+--             let to_insert_map =
+--                     Map.filterWithKey
+--                         (\k _ -> not $ k `Map.member` map_existing)
+--                         map_should_exist
+-- 
+--             let to_insert = concat $ Map.elems to_insert_map
+-- 
+--             to_insert_ <- mapM ensureAttachmentExists to_insert
+-- 
+--             let to_insert_exist = catMaybes to_insert_
+-- 
+--             with_hashes <- mapM computeAttachmentHash to_insert_exist
+-- 
+--             attachments_result <- Client.postAttachments settings with_hashes
+-- 
+--             case attachments_result of
+--                 Left err -> do
+--                     putStrLn $ "Error posting attachments: " ++ show err
+--                     exitFailure
+-- 
+--                 Right saved -> do
+--                     putStrLn $ "Saved " ++ (show $ length saved) ++ " attachments!"
+--                     mapM_ (copyOrMoveFiles settings (copyOrMove fgs)) to_insert_exist
+-- 
+--     where
+--         ensureAttachmentExists :: Details -> IO (Maybe Details)
+--         ensureAttachmentExists (a, b, c, d, p, f) =
+--             (attachmentPaths fgs) p >>=
+--                 return . (maybe Nothing (\x -> Just (a, b, c, d, x, f)))
+-- 
+--         path_prefix :: String
+--         path_prefix = (addPathPrefix fgs) ""
 
-    existing_attachments_result <- Client.getAttachments settings (map (fromJust . Posts.post_id) ps)
 
-    case existing_attachments_result of
-        Left err -> do
-            putStrLn $ "Error fetching attachments: " ++ show err
-            exitFailure
-        Right existing_attachments -> do
-            let map_existing :: Map.Map (Int64, Text) [ At.Attachment ] =
-                    foldl'
-                        (insertRecord (\a -> (At.post_id a, At.board_filename a)))
-                        Map.empty
-                        existing_attachments
-
-            let attachments_on_board :: [ Details ] =
-                    concatMap (parseAttachments path_prefix) tuples
-            -- attachments_on_board are the only files that can be copied into the archive dir right now
-            -- since that's where we have the src filename. except here the Attachment doesn't have a sha hash yet
-            -- so we can't build the destination filename.
-
-            let map_should_exist :: Map.Map (Int64, Text) [ Details ] =
-                    foldl'
-                        (insertRecord (\(_, _, _, _, _, a) -> (At.post_id a, At.board_filename a)))
-                        Map.empty
-                        attachments_on_board
-
-            let to_insert_map =
-                    Map.filterWithKey
-                        (\k _ -> not $ k `Map.member` map_existing)
-                        map_should_exist
-
-            let to_insert = concat $ Map.elems to_insert_map
-
-            to_insert_ <- mapM ensureAttachmentExists to_insert
-
-            let to_insert_exist = catMaybes to_insert_
-
-            with_hashes <- mapM computeAttachmentHash to_insert_exist
-
-            attachments_result <- Client.postAttachments settings with_hashes
-
-            case attachments_result of
-                Left err -> do
-                    putStrLn $ "Error posting attachments: " ++ show err
-                    exitFailure
-
-                Right saved -> do
-                    putStrLn $ "Saved " ++ (show $ length saved) ++ " attachments!"
-                    mapM_ (copyOrMoveFiles settings (copyOrMove fgs)) to_insert_exist
-
-    where
-        ensureAttachmentExists :: Details -> IO (Maybe Details)
-        ensureAttachmentExists (a, b, c, d, p, f) =
-            (attachmentPaths fgs) p >>=
-                return . (maybe Nothing (\x -> Just (a, b, c, d, x, f)))
-
-        path_prefix :: String
-        path_prefix = (addPathPrefix fgs) ""
-
-
-insertRecord
-    :: Ord a
-    => (b -> a)
-    -> Map.Map a [b]
-    -> b
-    -> Map.Map a [b]
-insertRecord getKey accMap x =
-    let pid = getKey x
-        l = Map.findWithDefault [] pid accMap
-    in Map.insert pid (x : l) accMap
+-- insertRecord
+--     :: Ord a
+--     => (b -> a)
+--     -> Map.Map a [b]
+--     -> b
+--     -> Map.Map a [b]
+-- insertRecord getKey accMap x =
+--     let pid = getKey x
+--         l = Map.findWithDefault [] pid accMap
+--     in Map.insert pid (x : l) accMap
 
 
 -- localIndexFoldf
