@@ -211,25 +211,6 @@ postAttachments settings attachments = eitherDecodeResponse <$>
         payload = encode attachments
 
 
--- -- TODO: this can be deleted
--- -- | Function to handle each chunk.
--- getPostsChunk :: T.JSONSettings -> [ PostId ] -> IO (Either HttpError [ Posts.Post ])
--- getPostsChunk settings chunk = eitherDecodeResponse <$>
---     post settings "/rpc/get_posts" payload False
--- 
---     where
---         payload = encode $ object [ "board_posts" .= chunk ]
--- 
--- 
--- -- TODO: this can be deleted
--- getPosts :: T.JSONSettings -> [ PostId ] -> IO (Either HttpError [ Posts.Post ])
--- getPosts settings xs = do
---     results <- forM (chunkList chunkSize xs) (getPostsChunk settings)
---     return $ combineResults results
--- 
---   where
---     chunkSize = 1000
-
 -- | Get post_ids based on the board_id and a list of board_post_ids
 getPostIdsChunk :: T.JSONSettings -> Int -> [ Int64 ] -> IO (Either HttpError [ PostId ])
 getPostIdsChunk settings board_id board_post_ids = eitherDecodeResponse <$>
