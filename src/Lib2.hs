@@ -9,7 +9,6 @@ module Lib2
   , httpGet
   , removeDeletedThreads
   , liftHttpIO
-  , postHasAttachments
   , downloadAttachment
   , IOe
   , groupDetails
@@ -265,11 +264,6 @@ removeDeletedThreads settings board_elem new_catalog = do
             exists <- doesDirectoryExist path
 
             when exists $ removeDirectoryRecursive path
-
-postHasAttachments :: JSONPost.Post -> Bool
-postHasAttachments JSONPost.Post { JSONPost.files = Just _ } = True
-postHasAttachments JSONPost.Post { JSONPost.filename = Just _ } = True
-postHasAttachments _ = False
 
 
 groupDetails :: [ Lib.Details ] -> [ (Thread.Thread, [ (Posts.Post, [ Lib.Details ]) ]) ]

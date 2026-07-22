@@ -68,7 +68,7 @@ import qualified Hash
 import qualified Data.WordUtil as Words
 import qualified Common.Server.JSONSettings as J
 import Common.Network.HttpClient (HttpError)
-import qualified Common.Server.ConsumerSettings as CS
+import qualified CliSettings as CS
 
 newtype SettingsCLI = SettingsCLI
   { jsonFile :: FilePath

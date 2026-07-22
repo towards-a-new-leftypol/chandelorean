@@ -15,8 +15,10 @@ import Control.Concurrent.STM (atomically, retry)
 import Control.Concurrent (threadDelay, forkFinally)
 import System.Random (StdGen, getStdGen)
 import Control.Monad.Trans.Except (runExceptT)
+import Control.Monad.IO.Class (liftIO)
+import UnliftIO.Async (pooledMapConcurrentlyN)
 
-import qualified Common.Server.ConsumerSettings as S
+import qualified CliSettings as S
 import qualified Common.Server.JSONSettings as JS
 import qualified Network.DataClient as Client
 import qualified Lib
@@ -32,6 +34,7 @@ import qualified Common.PostsType as Post
 import qualified ClientAPI as API
 import Clients.LainJSONClient (lainJSONClient)
 import Clients.TinyboardHTML (tinyboardHTMLClient)
+import Network.SpamNoticer (noticerReqInfoFromDetails)
 
 consumerSettingsToPartialJSONSettings :: S.ConsumerJSONSettings -> JS.JSONSettings
 consumerSettingsToPartialJSONSettings S.ConsumerJSONSettings {..} =
@@ -56,10 +59,6 @@ threadMain :: S.ConsumerJSONSettings -> QE.BoardQueueElem -> IO QE.BoardQueueEle
 threadMain csmr_settings boardElem = do
     putStrLn $ Board.pathpart $ QE.board boardElem
 
-    -- this is essentially the same as Lib.processBoard
-    -- but uses ExceptT instead of IO, which saves us from writing all
-    -- of the error handling cases every time we make an http call. That can be done
-    -- once at the end.
     thread_results <- runExceptT $ do
         let
             site = QE.site boardElem
@@ -138,6 +137,15 @@ threadMain csmr_settings boardElem = do
             downloadedMissingPosts :: [ Lib.Details ] <- mapM
                 (Lib2.liftHttpIO . Lib2.downloadAttachment)
                 missingPostsDetails
+
+            let postsPerThread = Lib2.groupDetails downloadedMissingPosts
+
+            noticerRequestInfos <- mapM
+                  (\(a, b, c, d, e) -> liftIO $ noticerReqInfoFromDetails a b c d e)
+                  [ (site, board, t, post, detailsList)
+                  | (t, xs) <- postsPerThread
+                  , (post, detailsList) <- xs
+                  ]
 
             -- Lib2.saveNewAttachments settings post_tuples
 

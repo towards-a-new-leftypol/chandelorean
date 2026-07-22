@@ -3,9 +3,34 @@ module CliSettings where
 import System.Exit (exitFailure)
 import qualified Data.ByteString.Lazy as B
 import System.Console.CmdArgs (cmdArgs, Data, Typeable)
-import Data.Aeson (decode)
+import Data.Text (Text)
+import GHC.Generics
+import Data.Aeson (decode, FromJSON)
 
-import Common.Server.ConsumerSettings
+data ClientApiType = LainJSON | TinyboardHTML
+    deriving (Eq, Show, Generic)
+
+instance FromJSON ClientApiType
+
+data JSONSiteSettings = JSONSiteSettings
+    { name :: String
+    , root_url :: String
+    , boards :: [ String ]
+    , client_api_type :: ClientApiType
+    } deriving (Show, Generic)
+
+instance FromJSON JSONSiteSettings
+
+data ConsumerJSONSettings = ConsumerJSONSettings
+    { websites :: [ JSONSiteSettings ]
+    , postgrest_url :: String
+    , jwt :: Text
+    , media_root_path :: String
+    , sync_max_concurrent_workers :: Int
+    , sync_loop_timeout_microseconds :: Int
+    } deriving (Show, Generic)
+
+instance FromJSON ConsumerJSONSettings
 
 newtype CliArgs = CliArgs
   { settingsFile :: String

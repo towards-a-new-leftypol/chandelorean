@@ -5,7 +5,7 @@ import Data.Time.Clock (UTCTime)
 import SitesType (Site)
 import BoardsType (Board)
 import Network.Api.JSONParsing (Thread)
-import Common.Server.ConsumerSettings (ClientApiType)
+import CliSettings (ClientApiType)
 
 data BoardQueueElem = BoardQueueElem
     { site :: Site

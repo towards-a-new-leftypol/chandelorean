@@ -82,7 +82,6 @@ executable chan-delorean-consoomer
                       Network.DataClient
                       Network.DataClientTypes
                       Network.GetLatestPostsPerBoardResponse
-                      Common.Server.ConsumerSettings
                       Common.Server.JSONSettings
                       Common.Parsing.FlexibleJsonResponseParser
                       PriorityQueue
@@ -126,7 +125,8 @@ executable chan-delorean-consoomer
                       stm,
                       random,
                       transformers,
-                      vector
+                      vector,
+                      unliftio
 
     -- Directories containing source files.
     hs-source-dirs:   src
@@ -173,6 +173,7 @@ executable download-missing-attachments
                       Network.Api.JSONExtraFile
                       Network.Api.JSONParsing
                       Network.Api.JSONPost
+                      Network.SpamNoticer
                       PriorityQueue
                       Sync
 

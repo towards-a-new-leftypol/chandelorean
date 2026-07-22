@@ -7,13 +7,13 @@ module Network.SpamNoticer where
 import GHC.Generics
 import Data.Aeson (ToJSON, FromJSON, Value, encode)
 import Data.Text (Text)
-import Data.Time.Clock (UTCTime)
 import Data.Int (Int64)
 import Network.HTTP.Simple
     ( setRequestMethod
     , parseRequest
     , httpLBS
     )
+import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
 
 import Common.Network.HttpClient (HttpError, handleHttp)
 import Network.HTTP.Client.MultipartFormData
@@ -42,7 +42,7 @@ data SpamNoticerRequestInfo =
     SpamNoticerRequestInfo
         { attachments :: [ SpamNoticerAttachmentMetadata ]
         , body  :: Maybe Text
-        , time_stamp :: UTCTime
+        , time_stamp :: Integer
         , website_name :: String
         , board_name :: String
         , thread_id :: Int64
@@ -52,9 +52,9 @@ data SpamNoticerRequestInfo =
 data SpamNoticerResponse =
     SpamNoticerResponse
         { noticed :: Bool
-        , reason :: Integer
-        , details :: Value
-        , debug_transaction_log :: Value
+        , reason  :: Maybe Integer
+        , details :: Maybe Value
+        , debug_transaction_log :: Maybe Value
         } deriving (Show, Generic, ToJSON, FromJSON)
 
 data SpamNoticerSettings =
@@ -68,15 +68,15 @@ askNoticer
     -> [ FilePath ]
     -> IO (Either HttpError SpamNoticerResponse)
 askNoticer settings requestInfo attachmentPaths = do
-    req <- parseRequest url
+    putStrLn $ "POSTing SpamNoticer query to " ++ url
 
-    let httpRequest = setRequestMethod "POST" req
-
-    request <- formDataBody (jsonPart : attachmentParts) httpRequest
-
-    putStrLn $ "POSTing SpamNoticer query to" ++ url
-
-    eitherDecodeResponse <$> handleHttp (httpLBS request)
+    eitherDecodeResponse <$>
+        ( handleHttp $ do
+            req <- parseRequest url
+            let httpRequest = setRequestMethod "POST" req
+            request <- formDataBody (jsonPart : attachmentParts) httpRequest
+            httpLBS request
+        )
 
     where
         url = base_url settings ++ path
@@ -101,7 +101,7 @@ noticerReqInfoFromDetails site board thread post attDetails = do
     return SpamNoticerRequestInfo
         { attachments = zipWith ($) (attDetails >>= attachmentMetaFromDetails) hashes
         , body = Posts.body post
-        , time_stamp = Posts.creation_time post
+        , time_stamp = round $ utcTimeToPOSIXSeconds $ Posts.creation_time post
         , website_name = Sites.name site
         , board_name = Boards.pathpart board
         , thread_id = Threads.board_thread_id thread
