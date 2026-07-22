@@ -15,7 +15,6 @@ import Control.Concurrent.STM (atomically, retry)
 import Control.Concurrent (threadDelay, forkFinally)
 import System.Random (StdGen, getStdGen)
 import Control.Monad.Trans.Except (runExceptT)
-import Data.Maybe (catMaybes)
 
 import qualified Common.Server.ConsumerSettings as S
 import qualified Common.Server.JSONSettings as JS
@@ -111,7 +110,7 @@ threadMain csmr_settings boardElem = do
             --   are in the db ✓
             -- - use Lib2.downloadAttachment to get all the missing attachments ✓
             --      - need to figure out whether or not to use liftHttpIO here, the old code doesn't do this, it seems to try and get as many as possible
-            -- - create http client for SpamNoticer based on the php one
+            -- - create http client for SpamNoticer based on the php one ✓
             -- - filter the list of posts using SpamNoticer
             -- - insert (with header Prefer: resolution=ignore-duplicates) all the threads into db
             -- - insert all the posts into the db
@@ -136,7 +135,7 @@ threadMain csmr_settings boardElem = do
                     , d <- Lib.parseAttachments (JS.site_url settings) (site, board, t, jp, p)
                     ] :: [ Lib.Details ]
 
-            savedAttachmentDetails :: [ Lib.Details ] <- catMaybes <$> mapM
+            downloadedMissingPosts :: [ Lib.Details ] <- mapM
                 (Lib2.liftHttpIO . Lib2.downloadAttachment)
                 missingPostsDetails
 

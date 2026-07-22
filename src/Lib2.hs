@@ -194,7 +194,7 @@ saveNewThreads settings board web_threads = do
 
 
 -- Downloads attachment and thumbnail to temporary files, and returns their paths.
-downloadAttachment :: Lib.Details -> IO (Either HttpError (Maybe Lib.Details))
+downloadAttachment :: Lib.Details -> IO (Either HttpError Lib.Details)
 downloadAttachment (a, b, c, d, Just (paths, f)) = do
     result <- do
         file_result <- Client.getFile (At.file_path paths)
@@ -215,9 +215,11 @@ downloadAttachment (a, b, c, d, Just (paths, f)) = do
                                 return $ Right $ Just $ At.Paths filepath Nothing
                             Right thumb_path -> return $ Right $ Just $ At.Paths filepath $ Just thumb_path
 
-    return $ result >>= maybe (Right Nothing) (Right . Just . (\y -> (a, b, c, d, Just (y, f))))
+    return $ result >>= maybe
+        (Right (a, b, c, d, Nothing))
+        (Right . (\y -> (a, b, c, d, Just (y, f))))
 
-downloadAttachment _ = return $ Right Nothing
+downloadAttachment x = return $ Right x
 
 
 -- Only run this after syncing all of the threads on the board successfully

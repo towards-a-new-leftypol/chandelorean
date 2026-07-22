@@ -23,6 +23,13 @@ import Network.HTTP.Client.MultipartFormData
     , partFileSource
     )
 import Network.DataClient (eitherDecodeResponse)
+import qualified Lib
+import qualified SitesType  as Sites
+import qualified BoardsType as Boards
+import qualified ThreadType as Threads
+import qualified Common.PostsType as Posts
+import qualified Common.AttachmentType as At
+import Hash (computeMD5)
 
 data SpamNoticerAttachmentMetadata =
     SpamNoticerAttachmentMetadata
@@ -82,3 +89,40 @@ askNoticer settings requestInfo attachmentPaths = do
         jsonPart = partLBS "json" $ encode requestInfo
 
         attachmentParts = map (partFileSource "attachments") attachmentPaths
+
+
+noticerReqInfoFromDetails
+    :: Sites.Site
+    -> Boards.Board
+    -> Threads.Thread
+    -> Posts.Post
+    -> [ Lib.Details ]
+    -> IO SpamNoticerRequestInfo -- IO because we need to make an md5_sum
+noticerReqInfoFromDetails site board thread post attDetails = do
+    hashes <- mapM computeMD5 (attDetails >>= selectAtFilePath)
+
+    return SpamNoticerRequestInfo
+        { attachments = (attDetails >>= attachmentMetaFromDetails) <*> hashes
+        , body = Posts.body post
+        , time_stamp = Posts.creation_time post
+        , website_name = Sites.name site
+        , board_name = Boards.pathpart board
+        , thread_id = Threads.board_thread_id thread
+        , skip_recent_record = True
+        }
+
+    where
+        attachmentMetaFromDetails :: Lib.Details -> [ Text -> SpamNoticerAttachmentMetadata ]
+        attachmentMetaFromDetails (_, _, _, _, Nothing) = []
+        attachmentMetaFromDetails (_, _, _, _, Just (_, at)) =
+            [ \md5 -> SpamNoticerAttachmentMetadata
+                { filename = At.board_filename at
+                , mimetype = At.mimetype at
+                , md5_hash = md5
+                }
+            ]
+
+        selectAtFilePath :: Lib.Details -> [ FilePath ]
+        selectAtFilePath (_site, _board, _thread, _post, Just (paths, _attachment))
+            = [ At.file_path paths ]
+        selectAtFilePath _= []
