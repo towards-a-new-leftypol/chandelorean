@@ -10,8 +10,7 @@ import Data.Text (Text)
 import Data.Time.Clock (UTCTime)
 import Data.Int (Int64)
 import Network.HTTP.Simple
-    ( setRequestHeader
-    , setRequestMethod
+    ( setRequestMethod
     , parseRequest
     , httpLBS
     )
@@ -71,9 +70,7 @@ askNoticer
 askNoticer settings requestInfo attachmentPaths = do
     req <- parseRequest url
 
-    let httpRequest = setRequestMethod "POST"
-            . setRequestHeader "Content-Type" [ "application/json" ]
-            $ req
+    let httpRequest = setRequestMethod "POST" req
 
     request <- formDataBody (jsonPart : attachmentParts) httpRequest
 
@@ -102,7 +99,7 @@ noticerReqInfoFromDetails site board thread post attDetails = do
     hashes <- mapM computeMD5 (attDetails >>= selectAtFilePath)
 
     return SpamNoticerRequestInfo
-        { attachments = (attDetails >>= attachmentMetaFromDetails) <*> hashes
+        { attachments = zipWith ($) (attDetails >>= attachmentMetaFromDetails) hashes
         , body = Posts.body post
         , time_stamp = Posts.creation_time post
         , website_name = Sites.name site
