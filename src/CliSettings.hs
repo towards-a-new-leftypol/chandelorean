@@ -1,3 +1,5 @@
+{-# LANGUAGE DeriveAnyClass #-}
+
 module CliSettings where
 
 import System.Exit (exitFailure)
@@ -5,7 +7,7 @@ import qualified Data.ByteString.Lazy as B
 import System.Console.CmdArgs (cmdArgs, Data, Typeable)
 import Data.Text (Text)
 import GHC.Generics
-import Data.Aeson (decode, FromJSON)
+import Data.Aeson (decode, FromJSON, ToJSON)
 
 data ClientApiType = LainJSON | TinyboardHTML
     deriving (Eq, Show, Generic)
@@ -28,9 +30,16 @@ data ConsumerJSONSettings = ConsumerJSONSettings
     , media_root_path :: String
     , sync_max_concurrent_workers :: Int
     , sync_loop_timeout_microseconds :: Int
+    , spam_noticer :: Maybe SpamNoticerSettings
     } deriving (Show, Generic)
 
 instance FromJSON ConsumerJSONSettings
+
+data SpamNoticerSettings =
+    SpamNoticerSettings
+        { base_url :: String
+        , max_concurrent_requests :: Int
+        } deriving (Show, Generic, ToJSON, FromJSON)
 
 newtype CliArgs = CliArgs
   { settingsFile :: String

@@ -1,5 +1,4 @@
 {-# LANGUAGE OverloadedStrings #-}
-{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE DeriveAnyClass #-}
 
 module Network.SpamNoticer where
@@ -14,6 +13,7 @@ import Network.HTTP.Simple
     , httpLBS
     )
 import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
+import qualified Data.ByteString.Lazy.Char8 as BS
 
 import Common.Network.HttpClient (HttpError, handleHttp)
 import Network.HTTP.Client.MultipartFormData
@@ -29,6 +29,7 @@ import qualified ThreadType as Threads
 import qualified Common.PostsType as Posts
 import qualified Common.AttachmentType as At
 import Hash (computeMD5)
+import CliSettings (SpamNoticerSettings (..))
 
 data SpamNoticerAttachmentMetadata =
     SpamNoticerAttachmentMetadata
@@ -37,7 +38,7 @@ data SpamNoticerAttachmentMetadata =
         , mimetype :: Text
         , md5_hash :: Text
         } deriving (Show, Generic, ToJSON, FromJSON)
-    
+
 data SpamNoticerRequestInfo =
     SpamNoticerRequestInfo
         { attachments :: [ SpamNoticerAttachmentMetadata ]
@@ -55,11 +56,6 @@ data SpamNoticerResponse =
         , reason  :: Maybe Integer
         , details :: Maybe Value
         , debug_transaction_log :: Maybe Value
-        } deriving (Show, Generic, ToJSON, FromJSON)
-
-data SpamNoticerSettings =
-    SpamNoticerSettings
-        { base_url :: String
         } deriving (Show, Generic, ToJSON, FromJSON)
 
 askNoticer
@@ -123,3 +119,7 @@ noticerReqInfoFromDetails site board thread post attDetails = do
         selectAtFilePath (_site, _board, _thread, _post, Just (paths, _attachment))
             = [ At.file_path paths ]
         selectAtFilePath _= []
+
+logNoticerNoticed :: SpamNoticerResponse -> IO ()
+logNoticerNoticed SpamNoticerResponse { noticed = False } = return ()
+logNoticerNoticed n = BS.putStrLn $ encode n

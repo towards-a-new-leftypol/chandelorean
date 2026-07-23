@@ -31,10 +31,11 @@ import qualified PriorityQueue as PQ
 import qualified Lib2
 import qualified Network.Api.JSONPost as JSONPost
 import qualified Common.PostsType as Post
+import qualified Common.AttachmentType as At
 import qualified ClientAPI as API
 import Clients.LainJSONClient (lainJSONClient)
 import Clients.TinyboardHTML (tinyboardHTMLClient)
-import Network.SpamNoticer (noticerReqInfoFromDetails)
+import qualified Network.SpamNoticer as SN
 
 consumerSettingsToPartialJSONSettings :: S.ConsumerJSONSettings -> JS.JSONSettings
 consumerSettingsToPartialJSONSettings S.ConsumerJSONSettings {..} =
@@ -110,7 +111,7 @@ threadMain csmr_settings boardElem = do
             -- - use Lib2.downloadAttachment to get all the missing attachments ✓
             --      - need to figure out whether or not to use liftHttpIO here, the old code doesn't do this, it seems to try and get as many as possible
             -- - create http client for SpamNoticer based on the php one ✓
-            -- - filter the list of posts using SpamNoticer
+            -- - filter the list of posts using SpamNoticer ✓
             -- - insert (with header Prefer: resolution=ignore-duplicates) all the threads into db
             -- - insert all the posts into the db
             -- - it looks like the old code
@@ -138,28 +139,61 @@ threadMain csmr_settings boardElem = do
                 (Lib2.liftHttpIO . Lib2.downloadAttachment)
                 missingPostsDetails
 
-            let postsPerThread = Lib2.groupDetails downloadedMissingPosts
+            let
+                mNoticerSettings = S.spam_noticer csmr_settings
+                postsPerThread = Lib2.groupDetails downloadedMissingPosts
 
-            noticerRequestInfos <- mapM
-                  (\(a, b, c, d, e) -> liftIO $ noticerReqInfoFromDetails a b c d e)
-                  [ (site, board, t, post, detailsList)
-                  | (t, xs) <- postsPerThread
-                  , (post, detailsList) <- xs
-                  ]
+            cleanPostsPerThread <- case mNoticerSettings of
+                Nothing -> return postsPerThread
+                Just noticerSettings -> do
 
-            -- Lib2.saveNewAttachments settings post_tuples
+                    noticerRequestInfos <- liftIO $ mapM
+                          ( \(a, b, c, d, e) ->
+                              SN.noticerReqInfoFromDetails a b c d e
+                          )
+                          [ (site, board, t, post, detailsList)
+                          | (t, xs) <- postsPerThread
+                          , (post, detailsList) <- xs
+                          ]
 
-            -- _ <- Lib2.liftHttpIO $
-            --         Client.updatePostAttachmentNotConsidered
-            --             settings
-            --             (map Thread.thread_id threads)
+                    let noticerArgs = zip noticerRequestInfos
+                            [ i >>=
+                                (\(_, _, _, _, x) ->
+                                        case x of
+                                            Nothing -> []
+                                            Just (p, _) -> [ At.file_path p ]
+                                )
+                            | (_, xs) <- postsPerThread
+                            , (_, i) <- xs
+                            ]
 
-            -- So we also might want to build a service that http posts go to
-            -- to signal new posts, and to also broadcast this out to everyone
-            -- that connects.
+                    let noticerJobs = S.max_concurrent_requests noticerSettings
+
+                    noticerResponses <- Lib2.liftHttpIO $ sequence <$> pooledMapConcurrentlyN
+                        noticerJobs
+                        (uncurry (SN.askNoticer noticerSettings))
+                        noticerArgs
+
+                    liftIO $ mapM_ SN.logNoticerNoticed noticerResponses
+
+                    let detailsWithSNResponses = zip
+                            [ i
+                            | (_, xs) <- postsPerThread
+                            , (_, i) <- xs
+                            ]
+                            noticerResponses
+
+                    return $ Lib2.groupDetails $
+                        ( map fst $
+                            filter
+                                (\(_, noticerResp) ->
+                                    SN.noticed noticerResp == False
+                                )
+                                detailsWithSNResponses
+                        ) >>= id
+
 
             -- result is the most recent timestamp of all the posts we just saved
-            -- return $ foldr max board_last_modified $ map Post.creation_time posts
             return $ foldr max board_last_modified $ map Post.creation_time undefined
 
         Lib2.removeDeletedThreads settings boardElem allCatalogApiThreads
