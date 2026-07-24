@@ -15,7 +15,6 @@ module Lib
     ( toClientSettings
     , createArchivesForNewBoards
     , ensureSiteExists
-    , httpFileGetters
     , SettingsCLI (..)
     , epochToUTCTime
     , apiThreadToArchiveThread
@@ -52,7 +51,6 @@ import Network.Mime (defaultMimeLookup)
 import PerceptualHash (fileHash)
 import Control.Exception.Safe (tryAsync, SomeException, displayException)
 import qualified Data.ByteString.Lazy as B
-import Data.Aeson (FromJSON)
 
 import Network.Api.JSONParsing
 import qualified Network.Api.JSONCommonTypes as JS
@@ -468,110 +466,6 @@ computeAttachmentHash p q = do
         }
 
 
--- processFiles
---     :: J.JSONSettings
---     -> FileGetters
---     -> [(Sites.Site, Boards.Board, Threads.Thread, JSONPost.Post, Posts.Post)]
---     -> IO ()
--- processFiles settings fgs tuples = do -- perfect just means that our posts have ids, they're already inserted into the db
---     let ps = map (\(_, _, _, _, x) -> x) tuples
--- 
---     existing_attachments_result <- Client.getAttachments settings (map (fromJust . Posts.post_id) ps)
--- 
---     case existing_attachments_result of
---         Left err -> do
---             putStrLn $ "Error fetching attachments: " ++ show err
---             exitFailure
---         Right existing_attachments -> do
---             let map_existing :: Map.Map (Int64, Text) [ At.Attachment ] =
---                     foldl'
---                         (insertRecord (\a -> (At.post_id a, At.board_filename a)))
---                         Map.empty
---                         existing_attachments
--- 
---             let attachments_on_board :: [ Details ] =
---                     concatMap (parseAttachments path_prefix) tuples
---             -- attachments_on_board are the only files that can be copied into the archive dir right now
---             -- since that's where we have the src filename. except here the Attachment doesn't have a sha hash yet
---             -- so we can't build the destination filename.
--- 
---             let map_should_exist :: Map.Map (Int64, Text) [ Details ] =
---                     foldl'
---                         (insertRecord (\(_, _, _, _, _, a) -> (At.post_id a, At.board_filename a)))
---                         Map.empty
---                         attachments_on_board
--- 
---             let to_insert_map =
---                     Map.filterWithKey
---                         (\k _ -> not $ k `Map.member` map_existing)
---                         map_should_exist
--- 
---             let to_insert = concat $ Map.elems to_insert_map
--- 
---             to_insert_ <- mapM ensureAttachmentExists to_insert
--- 
---             let to_insert_exist = catMaybes to_insert_
--- 
---             with_hashes <- mapM computeAttachmentHash to_insert_exist
--- 
---             attachments_result <- Client.postAttachments settings with_hashes
--- 
---             case attachments_result of
---                 Left err -> do
---                     putStrLn $ "Error posting attachments: " ++ show err
---                     exitFailure
--- 
---                 Right saved -> do
---                     putStrLn $ "Saved " ++ (show $ length saved) ++ " attachments!"
---                     mapM_ (copyOrMoveFiles settings (copyOrMove fgs)) to_insert_exist
--- 
---     where
---         ensureAttachmentExists :: Details -> IO (Maybe Details)
---         ensureAttachmentExists (a, b, c, d, p, f) =
---             (attachmentPaths fgs) p >>=
---                 return . (maybe Nothing (\x -> Just (a, b, c, d, x, f)))
--- 
---         path_prefix :: String
---         path_prefix = (addPathPrefix fgs) ""
-
-
--- insertRecord
---     :: Ord a
---     => (b -> a)
---     -> Map.Map a [b]
---     -> b
---     -> Map.Map a [b]
--- insertRecord getKey accMap x =
---     let pid = getKey x
---         l = Map.findWithDefault [] pid accMap
---     in Map.insert pid (x : l) accMap
-
-
--- localIndexFoldf
---     :: ([Posts.Post], Map.Map Int64 Int)
---     -> (Threads.Thread, JSONPost.Post, Client.PostId)
---     -> ([Posts.Post], Map.Map Int64 Int)
--- localIndexFoldf (posts, idx_map) (t, p, c) =
---     case Map.lookup thread_id idx_map of
---         Nothing -> (post 1       : posts, Map.insert thread_id 1       idx_map)
---         Just i  -> (post (i + 1) : posts, Map.insert thread_id (i + 1) idx_map)
--- 
---     where
---         post :: Int -> Posts.Post
---         post i = apiPostToArchivePost i t p
--- 
---         thread_id = Client.thread_id c
-
-
-data FileGetters = FileGetters
-    { getJSONCatalog :: Sites.Site -> String -> IO (Either String [ Catalog ])
-    , getJSONPosts :: Sites.Site -> String -> IO (Either String JSONPost.PostWrapper)
-    , addPathPrefix :: String -> String
-    , attachmentPaths :: At.Paths -> IO (Maybe At.Paths)
-    , copyOrMove :: String -> (String, String) -> (Maybe String, String) -> IO ()
-    }
-
-
 toClientSettings :: CS.ConsumerJSONSettings -> CS.JSONSiteSettings -> J.JSONSettings
 toClientSettings CS.ConsumerJSONSettings {..} CS.JSONSiteSettings {..} =
     J.JSONSettings
@@ -581,44 +475,6 @@ toClientSettings CS.ConsumerJSONSettings {..} CS.JSONSiteSettings {..} =
     , J.media_root_path = media_root_path
     , J.site_name = name
     , J.site_url = root_url
-    }
-
-
-httpGetJSON :: (FromJSON a) => Sites.Site -> String -> IO (Either String a)
-httpGetJSON site path = (Client.getJSON $ Sites.url site </> path)
-    >>= getErrMsg
-    where
-        getErrMsg :: Either Client.HttpError a -> IO (Either String a)
-        getErrMsg (Left err) = return $ Left $ show err
-        getErrMsg (Right x) = return $ Right x
-
-httpFileGetters :: J.JSONSettings -> FileGetters
-httpFileGetters settings = FileGetters
-    { getJSONCatalog = httpGetJSON
-    , getJSONPosts = httpGetJSON
-    , addPathPrefix = ((++) $ J.site_url settings)
-      -- attachmentPaths here actually doesn't get the paths of the attachment,
-      -- it downloads them into a temporary file and gets that path of that.
-    , attachmentPaths = \paths -> do
-        filepath <- Client.getFile (At.file_path paths)
-
-        m_thumbpath <- case At.thumbnail_path paths of
-            Nothing -> return $ Left undefined
-            Just thumbpath -> Client.getFile thumbpath
-
-        case filepath of
-            Left err -> do
-                print err
-                return Nothing
-
-            Right p ->
-                case m_thumbpath of
-                    Left _ -> do
-                        return $ Just $ At.Paths p Nothing
-                    Right tp -> return $ Just $ At.Paths p $ Just tp
-
-
-    , copyOrMove = moveAttachmentAndThumb
     }
 
 

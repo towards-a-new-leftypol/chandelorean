@@ -113,7 +113,10 @@ threadMain csmr_settings boardElem = do
             -- - create http client for SpamNoticer based on the php one ✓
             -- - filter the list of posts using SpamNoticer ✓
             -- - insert (with header Prefer: resolution=ignore-duplicates) all the threads into db
+            --      - the threads that already exist won't be echoed back, so we won't have their ids
+            --      - so need to query threads
             -- - insert all the posts into the db
+            -- - insert all the attachment metadata into the db
             -- - it looks like the old code
 
             existingBoardPostIds <- Lib2.liftHttpIO $
@@ -183,6 +186,12 @@ threadMain csmr_settings boardElem = do
                             ]
                             noticerResponses
 
+                    liftIO $ mapM_ Lib2.unlinkAttachmentFiles
+                        [ i
+                        | (i, j) <- detailsWithSNResponses
+                        , SN.noticed j
+                        ]
+
                     return $ Lib2.groupDetails $
                         ( map fst $
                             filter
@@ -193,8 +202,62 @@ threadMain csmr_settings boardElem = do
                         ) >>= id
 
 
+            -- save new posts
+
+            let changedThreads_ = map fst cleanPostsPerThread
+
+            newThreads <- Lib2.liftHttpIO $
+                Client.postThreads settings changedThreads_
+
+            let existingThreads_ = (Set.fromList changedThreads_)
+                    `Set.difference` (Set.fromList newThreads)
+
+
+            -- query existing threads to get their thread_ids to be able
+            -- to save posts
+
+            existingThreads <- Lib2.liftHttpIO $
+                Client.getThreads settings (Board.board_id board) $ Set.toList $
+                    Set.map Thread.board_thread_id existingThreads_
+
+            let threadThreadMap = Map.fromList
+                    [ (i, i) | i <- newThreads ++ existingThreads ]
+
+            -- At this point thread_id is still undefined for Thread and Post
+            let
+                cleanPPTWithThreadIds = map
+                    ( \(t, xs) ->
+                        let t_ = (Map.!) threadThreadMap t
+                        in
+                            ( t_
+                            , [ (p { Post.thread_id = Thread.thread_id t_ }, ds)
+                              | (p, ds) <- xs
+                              ]
+                            )
+                    )
+                    cleanPostsPerThread
+
+                postsToSave =
+                    [ x
+                    | (_, xs) <- cleanPPTWithThreadIds
+                    , x <- xs
+                    ]
+
+            newPosts <- Lib2.liftHttpIO $
+                Client.postPosts settings (map fst postsToSave)
+
+            let existingPostIds = Set.fromList (map (Client.idFromPost . fst) postsToSave)
+                    `Set.difference` Set.fromList (map Client.idFromPost newPosts)
+
+            existingPosts <- Lib2.liftHttpIO $
+                Client.getPosts settings $ Set.toList existingPostIds
+
             -- result is the most recent timestamp of all the posts we just saved
-            return $ foldr max board_last_modified $ map Post.creation_time undefined
+            return $ foldr max board_last_modified $ map Post.creation_time
+                [ post
+                | (_, xs) <- postsPerThread
+                , (post, _) <- xs
+                ]
 
         Lib2.removeDeletedThreads settings boardElem allCatalogApiThreads
         return (last_modified, Just allCatalogApiThreads)

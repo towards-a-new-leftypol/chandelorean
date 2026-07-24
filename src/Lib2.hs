@@ -4,7 +4,6 @@
 module Lib2
   ( httpGetCatalogJSON
   , ProgramException (..)
-  , saveNewThreads
   , httpGetPostsJSON
   , httpGet
   , removeDeletedThreads
@@ -12,11 +11,11 @@ module Lib2
   , downloadAttachment
   , IOe
   , groupDetails
+  , unlinkAttachmentFiles
   ) where
 
 import Control.Monad.Trans.Except (ExceptT (..))
 import System.FilePath ((</>))
-import qualified Data.Set as Set
 import qualified Data.Map as Map
 import Data.Aeson (FromJSON)
 import Data.Int (Int64)
@@ -24,8 +23,10 @@ import Data.Bifunctor (first)
 import Data.Maybe (fromJust)
 import System.Directory (removeDirectoryRecursive, doesDirectoryExist)
 import Control.Monad.IO.Class (liftIO)
-import Control.Monad (when, unless)
+import Control.Monad (when, unless, forM_)
 import qualified Data.ByteString.Lazy as LBS
+import System.Directory (removeFile)
+import System.IO.Error (catchIOError, isDoesNotExistError)
 
 import qualified Network.DataClient as Client
 import qualified SitesType  as Sites
@@ -89,45 +90,45 @@ httpGetPostsJSON site board thread =
             </> (show (Thread.board_thread_id thread) ++ ".json")
 
 
-saveNewThreads
-    :: JSONSettings
-    -> Boards.Board
-    -> [ JSON.Thread ]
-    -> IOe [ Thread.Thread ]
-saveNewThreads settings board web_threads = do
-    existing_threads <- liftHttpIO $
-        Client.getThreads
-            settings
-            (Boards.board_id board)
-            (map JSON.no web_threads)
-
-    let
-        archived_board_thread_ids :: Set.Set Int64
-        archived_board_thread_ids =
-            Set.fromList $ map Thread.board_thread_id existing_threads
-
-        api_threads_to_create :: [ JSON.Thread ]
-        api_threads_to_create =
-            filter
-                ((`Set.notMember` archived_board_thread_ids) . JSON.no)
-                web_threads
-
-        archive_threads_to_create :: [ Thread.Thread ]
-        archive_threads_to_create =
-            map (Lib.apiThreadToArchiveThread board_id) api_threads_to_create
-
-        board_id :: Int = Boards.board_id board
-
-    -- save new threads
-    new_threads <-
-        if null archive_threads_to_create
-        then
-            return []
-        else
-            liftHttpIO $
-                Client.postThreads settings archive_threads_to_create
-
-    return $ existing_threads ++ new_threads
+-- saveNewThreads
+--     :: JSONSettings
+--     -> Boards.Board
+--     -> [ JSON.Thread ]
+--     -> IOe [ Thread.Thread ]
+-- saveNewThreads settings board web_threads = do
+--     existing_threads <- liftHttpIO $
+--         Client.getThreads
+--             settings
+--             (Boards.board_id board)
+--             (map JSON.no web_threads)
+-- 
+--     let
+--         archived_board_thread_ids :: Set.Set Int64
+--         archived_board_thread_ids =
+--             Set.fromList $ map Thread.board_thread_id existing_threads
+-- 
+--         api_threads_to_create :: [ JSON.Thread ]
+--         api_threads_to_create =
+--             filter
+--                 ((`Set.notMember` archived_board_thread_ids) . JSON.no)
+--                 web_threads
+-- 
+--         archive_threads_to_create :: [ Thread.Thread ]
+--         archive_threads_to_create =
+--             map (Lib.apiThreadToArchiveThread board_id) api_threads_to_create
+-- 
+--         board_id :: Int = Boards.board_id board
+-- 
+--     -- save new threads
+--     new_threads <-
+--         if null archive_threads_to_create
+--         then
+--             return []
+--         else
+--             liftHttpIO $
+--                 Client.postThreads settings archive_threads_to_create
+-- 
+--     return $ existing_threads ++ new_threads
 
 
 -- saveNewAttachments
@@ -275,3 +276,18 @@ groupDetails deets =
                     Map.singleton t (Map.singleton p [x])
                 )
                 deets
+
+
+unlinkAttachmentFiles :: [ Lib.Details ] -> IO ()
+unlinkAttachmentFiles = (flip forM_) unlinkOne
+    where
+        unlinkOne :: Lib.Details -> IO ()
+        unlinkOne (_, _, _, _, Just (paths, _)) = do
+            unlinkFile (At.file_path paths)
+            forM_ (At.thumbnail_path paths) unlinkFile
+        unlinkOne _ = pure ()
+
+        unlinkFile :: FilePath -> IO ()
+        unlinkFile path =
+            removeFile path `catchIOError` \e ->
+                unless (isDoesNotExistError e) (ioError e)
