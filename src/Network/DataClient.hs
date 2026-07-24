@@ -141,6 +141,7 @@ getAllSites settings = eitherDecodeResponse <$>
 
 
 getThreads :: T.JSONSettings -> Int -> [ Int64 ] -> IO (Either HttpError [ Threads.Thread ])
+getThreads _ _ [] = return $ Right []
 getThreads settings board_id board_thread_ids = eitherDecodeResponse <$>
     get settings path
 
@@ -224,7 +225,8 @@ postAttachments
     -> [ Attachments.Attachment ]
     -> IO (Either HttpError [ Attachments.Attachment ])
 postAttachments settings attachments = eitherDecodeResponse <$>
-    post settings "/attachments" payload undefined
+    post settings "/attachments" payload
+        defaultOptions { returnRepresentation = True }
 
     where
         payload = encode attachments
@@ -261,6 +263,7 @@ getPostsChunk settings chunk = eitherDecodeResponse <$>
         payload = encode $ object [ "board_posts" .= chunk ]
 
 getPosts :: T.JSONSettings -> [ PostId ] -> IO (Either HttpError [ Posts.Post ])
+getPosts _ [] = return $ Right []
 getPosts settings xs = do
     results <- forM (chunkList chunkSize xs) (getPostsChunk settings)
     return $ combineResults results
