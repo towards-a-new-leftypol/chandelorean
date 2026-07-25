@@ -8,7 +8,7 @@ module Sync where
 import System.Exit (exitFailure)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
-import Data.Maybe (mapMaybe, fromMaybe)
+import Data.Maybe (mapMaybe, fromMaybe, fromJust)
 import Control.Concurrent.QSem
 import Control.Concurrent.STM.TVar
 import Control.Concurrent.STM (atomically, retry)
@@ -36,6 +36,7 @@ import qualified ClientAPI as API
 import Clients.LainJSONClient (lainJSONClient)
 import Clients.TinyboardHTML (tinyboardHTMLClient)
 import qualified Network.SpamNoticer as SN
+
 
 consumerSettingsToPartialJSONSettings :: S.ConsumerJSONSettings -> JS.JSONSettings
 consumerSettingsToPartialJSONSettings S.ConsumerJSONSettings {..} =
@@ -81,60 +82,63 @@ threadMain csmr_settings boardElem = do
 
             apiPosts :: [ (Thread.Thread, [ JSONPost.Post ]) ] <-
                     API.getWebPosts api boardElem changedThreads
-        
-            -- -- changed plus new threads, so all the ones we need to fetch posts for
-            -- threads <- Lib2.saveNewThreads settings board changedApiThreads
-
-            -- web_posts :: [ (Thread.Thread, [ JSONPost.Post ]) ] <-
-            --         API.getWebPosts api boardElem threads
-
-            -- posts <- Lib2.saveNewPosts settings web_posts
-
-            -- let web_post_tuples
-            --         :: [ (Site.Site, Board.Board, Thread.Thread, JSONPost.Post) ]
-            --         = concatMap
-            --             (\(t, ps) -> map (\p -> (site, board, t, p)) ps)
-            --             web_posts
-
-            -- let post_tuples = Lib.addPostsToTuples web_post_tuples posts
-
-            -- at this point the Post.thread_id is undefined, because it's undefined
-            -- in the thread because apiThreadToArchiveThread set its to undefined.
-            let changedThreadPosts =
-                    [ (t, map (\x -> (x, Lib.apiPostToArchivePost undefined t x)) jps)
-                    | (t, jps) <- apiPosts
-                    ] :: [ (Thread.Thread, [ (JSONPost.Post, Post.Post) ]) ]
-
-            -- TODO:
-            -- - use liftHttpIO Client.getPostIdsByBoardIds to test which changedThreadPosts
-            --   are in the db ✓
-            -- - use Lib2.downloadAttachment to get all the missing attachments ✓
-            --      - need to figure out whether or not to use liftHttpIO here, the old code doesn't do this, it seems to try and get as many as possible
-            -- - create http client for SpamNoticer based on the php one ✓
-            -- - filter the list of posts using SpamNoticer ✓
-            -- - insert (with header Prefer: resolution=ignore-duplicates) all the threads into db
-            --      - the threads that already exist won't be echoed back, so we won't have their ids
-            --      - so need to query threads
-            -- - insert all the posts into the db
-            -- - insert all the attachment metadata into the db
-            -- - it looks like the old code
 
             existingBoardPostIds <- Lib2.liftHttpIO $
                 Client.getPostIdsByBoardIds
                     settings
                     (Board.board_id board)
-                    [ Post.board_post_id p
-                    | (_, xs) <- changedThreadPosts
-                    , (_, p) <- xs
+                    [ JSONPost.no p
+                    | (_, xs) <- apiPosts
+                    , p <- xs
                     ]
 
+            let existingThreadIds = Set.fromList $
+                    map Client.thread_id existingBoardPostIds
+
+
+            maxLocalIdxMap <- Map.fromList <$> (
+                Lib2.liftHttpIO $ Client.getThreadMaxLocalIdx
+                    settings
+                    (Set.toList existingThreadIds)
+                )
+
+
+            let boardTidTidMap = Lib2.figureOutBoardThreadIdToThreadIdMap
+                    (Map.fromList [ (Thread.board_thread_id t, map JSONPost.no jps)
+                    | (t, jps) <- apiPosts
+                    ])
+                    (Map.fromList [ (Client.board_post_id postId, Client.thread_id postId)
+                    | postId <- existingBoardPostIds
+                    ])
+
+            -- at this point the Post.thread_id is undefined, because it's undefined
+            -- in the thread because apiThreadToArchiveThread set its to undefined.
             let
+                changedThreadPosts =
+                    [ let
+                            threadId = Map.lookup (Thread.board_thread_id t) boardTidTidMap
+                            (t_, idx) =
+                                case threadId of
+                                    Nothing -> (t, 0)
+                                    Just tid ->
+                                        ( t { Thread.thread_id = tid }
+                                        , fromMaybe 0 $ Map.lookup tid maxLocalIdxMap
+                                        )
+                      in
+                        ( t_
+                        , map
+                            (\(x, i) -> (x, Lib.apiPostToArchivePost i t_ x))
+                            (zip jps [(idx + 1)..])
+                        )
+                    | (t, jps) <- apiPosts
+                    ] :: [ (Thread.Thread, [ (JSONPost.Post, Post.Post) ]) ]
+
                 existingBoardPostIdSet = Set.fromList existingBoardPostIds
                 missingPostsDetails =
                     [ d
                     | (t, xs) <- changedThreadPosts
                     , (jp, p) <- xs
-                    , Set.notMember (Post.board_post_id p) existingBoardPostIdSet
+                    , Set.notMember (Client.idFromPost p) existingBoardPostIdSet
                     , d <- Lib.parseAttachments (JS.site_url settings) (site, board, t, jp, p)
                     ] :: [ Lib.Details ]
 
@@ -212,7 +216,6 @@ threadMain csmr_settings boardElem = do
             let existingThreads_ = (Set.fromList changedThreads_)
                     `Set.difference` (Set.fromList newThreads)
 
-
             -- query existing threads to get their thread_ids to be able
             -- to save posts
 
@@ -251,6 +254,53 @@ threadMain csmr_settings boardElem = do
 
             existingPosts <- Lib2.liftHttpIO $
                 Client.getPosts settings $ Set.toList existingPostIds
+
+            let postIdMap = Map.fromList
+                    [ (Client.idFromPost p, p) | p <- newPosts ++ existingPosts ]
+
+            -- take the post details, compute the sha256 hash for the
+            -- attachment and set the post_id in the post and the attachment
+            finalDetails <- liftIO $ mapM
+                ( \(s, b, t, p_, mat) ->
+                    let p = (Map.!) postIdMap (Client.idFromPost p_)
+                    in case mat of
+                        Nothing -> return (s, b, t, p , Nothing)
+                        Just (paths, attachment) -> do
+                            a <- Lib.computeAttachmentHash
+                                paths
+                                ( attachment
+                                    { At.post_id = fromJust $ Post.post_id p
+                                    }
+                                )
+                            return (s, b, t, p, Just (paths, a))
+                )
+                [ d
+                | (_, xs) <- cleanPostsPerThread
+                , (_, ds) <- xs
+                , d <- ds
+                ]
+
+            _savedAttachments <- Lib2.liftHttpIO $ Client.postAttachments settings
+                [ a
+                | (_, _, _, _, Just (_, a)) <- finalDetails
+                ]
+
+            liftIO $ mapM_ (Lib.copyOrMoveFiles settings Lib.moveAttachmentAndThumb)
+                finalDetails
+
+            -- post all the attachments
+            --  - how? Well we need to shove post_id into attachment,
+            --  - need to shove sha256 into attachment ✓
+            --  - details -> details ✓
+            --  then details -> postAttachments ✓
+            --  then details -> copyOrMove ✓
+            --  then details -> update not considered ✓
+
+            _ <- Lib2.liftHttpIO $
+                    Client.updatePostAttachmentNotConsidered
+                        settings
+                        (map Thread.thread_id $ newThreads ++ existingThreads)
+
 
             -- result is the most recent timestamp of all the posts we just saved
             return $ foldr max board_last_modified $ map Post.creation_time

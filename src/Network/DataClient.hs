@@ -32,7 +32,6 @@ module Network.DataClient
 
 import Control.Monad (forM)
 import Data.Int (Int64)
-import Data.Either (lefts, rights)
 import qualified Data.ByteString.Lazy as LBS
 import qualified Data.ByteString.Lazy.Char8 as LC8
 import Data.List (intercalate)
@@ -65,8 +64,8 @@ import Common.Parsing.FlexibleJsonResponseParser as Flx
 
 data PostId = PostId
     { thread_id     :: Int64
-    , board_post_id :: Int64
-    } deriving (Eq, Show, Generic, ToJSON)
+    , board_post_id  :: Int64
+    } deriving (Eq, Show, Generic, ToJSON, FromJSON)
 
 instance Ord PostId where
   compare = comparing (\i -> (thread_id i, board_post_id i))
@@ -75,7 +74,7 @@ instance Ord PostId where
 idFromPost :: Posts.Post -> PostId
 idFromPost p = PostId
     { thread_id     = Posts.thread_id p
-    , board_post_id = Posts.board_post_id p
+    , board_post_id  = Posts.board_post_id p
     }
 
 
@@ -188,11 +187,8 @@ getAttachments settings post_ids = do
 
 
 -- | Combines the results, prioritizing errors.
-combineResults :: [Either e [b]] -> Either e [b]
-combineResults results =
-    case lefts results of
-        [] -> Right (concat (rights results))
-        (err:_) -> Left err
+combineResults :: [ Either e [b] ] -> Either e [b]
+combineResults = fmap concat . sequenceA
 
 
 -- TODO: idk if we need this anymore!
@@ -233,22 +229,22 @@ postAttachments settings attachments = eitherDecodeResponse <$>
 
 
 -- | Get board_post_id based on the board_id and a list of board_post_ids
-getPostIdsChunk :: T.JSONSettings -> Int -> [ Int64 ] -> IO (Either HttpError [ Int64 ])
+getPostIdsChunk :: T.JSONSettings -> Int -> [ Int64 ] -> IO (Either HttpError [ PostId ])
 getPostIdsChunk settings board_id board_post_ids = eitherDecodeResponse <$>
     get settings path
 
     where
-        path = "/posts?select=board_post_id,threads:thread_id!inner()&board_post_id=in.("
+        path = "/posts?select=thread_id,board_post_id,threads:thread_id!inner()&board_post_id=in.("
             ++ intercalate "," (map show board_post_ids)
             ++ ")&threads.board_id=eq." ++ show board_id
             ++ "&attachment_not_considered=eq.false"
 
-getPostIdsByBoardIds :: T.JSONSettings -> Int -> [ Int64 ] -> IO (Either HttpError [ Int64 ] )
-getPostIdsByBoardIds settings board_id board_post_ids = do
-    results <- forM
-        (chunkList chunkSize board_post_ids)
-        (getPostIdsChunk settings board_id)
-    return $ combineResults results
+
+getPostIdsByBoardIds :: T.JSONSettings -> Int -> [ Int64 ] -> IO (Either HttpError [ PostId ] )
+getPostIdsByBoardIds _ _ [] = pure $ Right []
+getPostIdsByBoardIds settings board_id board_post_ids =
+    combineResults <$>
+        traverse (getPostIdsChunk settings board_id) (chunkList chunkSize board_post_ids)
 
     where
         chunkSize = 1000
@@ -264,9 +260,9 @@ getPostsChunk settings chunk = eitherDecodeResponse <$>
 
 getPosts :: T.JSONSettings -> [ PostId ] -> IO (Either HttpError [ Posts.Post ])
 getPosts _ [] = return $ Right []
-getPosts settings xs = do
-    results <- forM (chunkList chunkSize xs) (getPostsChunk settings)
-    return $ combineResults results
+getPosts settings xs =
+    combineResults <$>
+        traverse (getPostsChunk settings) (chunkList chunkSize xs)
 
   where
     chunkSize = 1000

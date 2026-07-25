@@ -12,6 +12,7 @@ module Lib2
   , IOe
   , groupDetails
   , unlinkAttachmentFiles
+  , figureOutBoardThreadIdToThreadIdMap
   ) where
 
 import Control.Monad.Trans.Except (ExceptT (..))
@@ -88,109 +89,6 @@ httpGetPostsJSON site board thread =
         path = Boards.pathpart board
             </> "res"
             </> (show (Thread.board_thread_id thread) ++ ".json")
-
-
--- saveNewThreads
---     :: JSONSettings
---     -> Boards.Board
---     -> [ JSON.Thread ]
---     -> IOe [ Thread.Thread ]
--- saveNewThreads settings board web_threads = do
---     existing_threads <- liftHttpIO $
---         Client.getThreads
---             settings
---             (Boards.board_id board)
---             (map JSON.no web_threads)
--- 
---     let
---         archived_board_thread_ids :: Set.Set Int64
---         archived_board_thread_ids =
---             Set.fromList $ map Thread.board_thread_id existing_threads
--- 
---         api_threads_to_create :: [ JSON.Thread ]
---         api_threads_to_create =
---             filter
---                 ((`Set.notMember` archived_board_thread_ids) . JSON.no)
---                 web_threads
--- 
---         archive_threads_to_create :: [ Thread.Thread ]
---         archive_threads_to_create =
---             map (Lib.apiThreadToArchiveThread board_id) api_threads_to_create
--- 
---         board_id :: Int = Boards.board_id board
--- 
---     -- save new threads
---     new_threads <-
---         if null archive_threads_to_create
---         then
---             return []
---         else
---             liftHttpIO $
---                 Client.postThreads settings archive_threads_to_create
--- 
---     return $ existing_threads ++ new_threads
-
-
--- saveNewAttachments
---     :: JSONSettings
---     -> [(Sites.Site, Boards.Board, Thread.Thread, JSONPost.Post, Posts.Post)]
---     -> IOe ()
--- saveNewAttachments settings post_tuples = do
---     db_attachments <-
---         let posts = map
---                 (\(_, _, _, _, x) -> x)
---                 (filter (\(_, _, _, x, _) -> postHasAttachments x) post_tuples)
---         in
---             liftHttpIO $
---                 Client.getAttachments
---                     settings
---                     (map (fromJust . Posts.post_id) posts)
--- 
---     let existing_attachment_map :: Map.Map (Int64, Text) [ At.Attachment ] =
---             Map.fromListWith
---                 (++)
---                 [ ((At.post_id a, At.board_filename a), [a])
---                 | a <- db_attachments
---                 ]
--- 
---     let attachments_on_board :: [ Lib.Details ] =
---             concatMap
---                 (Lib.parseAttachments (JSettgs.site_url settings))
---                 post_tuples
--- 
---     let attachments_on_board_map =
---             Map.fromListWith
---                 (++)
---                 [ ((At.post_id a, At.board_filename a), [x])
---                 | x@(_, _, _, _, _, a) <- attachments_on_board
---                 ]
--- 
---     let to_insert = concat $ Map.elems $ attachments_on_board_map `Map.difference` existing_attachment_map
--- 
---     attachment_download_results <- liftIO $ mapM downloadAttachment to_insert
--- 
---     let (errs, attachment_details_) = partitionEithers attachment_download_results
--- 
---     let continue = do
---             let attachment_details = catMaybes attachment_details_
--- 
---             new_attachments <- mapM (liftIO . Lib.computeAttachmentHash) attachment_details
--- 
---             _ {- posted_attachments -} <- liftHttpIO $ Client.postAttachments settings new_attachments
--- 
---             liftIO $
---                 mapM_
---                     (Lib.copyOrMoveFiles settings Lib.moveAttachmentAndThumb)
---                     attachment_details
--- 
--- 
---     if null errs
---     then
---         continue
---     else do
---         liftIO $ mapM_ print errs
---         continue
---         ExceptT $ pure $ Left $ HttpException $ head errs
 
 
 -- Downloads attachment and thumbnail to temporary files, and returns their paths.
@@ -291,3 +189,24 @@ unlinkAttachmentFiles = (flip forM_) unlinkOne
         unlinkFile path =
             removeFile path `catchIOError` \e ->
                 unless (isDoesNotExistError e) (ioError e)
+
+type BoardThreadId = Int64
+type ThreadId      = Int64
+type BoardPostId   = Int64
+
+figureOutBoardThreadIdToThreadIdMap
+    :: Map.Map BoardThreadId [ BoardPostId ]
+    -> Map.Map BoardPostId ThreadId
+    -> Map.Map BoardThreadId ThreadId
+figureOutBoardThreadIdToThreadIdMap
+    boardThreadIdBoardPostIdsMap
+    boardPostIdThreadIdMap =
+        Map.mapMaybe findTid boardThreadIdBoardPostIdsMap
+
+        where
+            findTid :: [ BoardPostId ] -> Maybe ThreadId
+            findTid [] = Nothing
+            findTid (x:xs) =
+                case Map.lookup x boardPostIdThreadIdMap of
+                    Nothing -> findTid xs
+                    Just tid -> Just tid
