@@ -166,14 +166,25 @@ removeDeletedThreads settings board_elem new_catalog = do
 
 
 groupDetails :: [ Lib.Details ] -> [ (Thread.Thread, [ (Posts.Post, [ Lib.Details ]) ]) ]
-groupDetails deets =
-    Map.toList $
-        Map.toList <$>
-            foldMap
-                (\x@(_, _, t, p, _) ->
-                    Map.singleton t (Map.singleton p [x])
-                )
-                deets
+groupDetails =
+    Map.toList
+    . Map.map Map.elems
+    . foldl' add Map.empty
+
+    where
+        add acc x@(_, _, t, p, _) = Map.alter (Just . insertThread) t acc
+            where
+                postKey = Posts.board_post_id p
+
+                insertThread Nothing =
+                    Map.singleton postKey (p, [x])
+
+                insertThread (Just postMap) =
+                    Map.alter (Just . insertPost) postKey postMap
+
+                insertPost Nothing = (p, [x])
+                insertPost (Just (oldP, oldDetails)) =
+                    (oldP, oldDetails ++ [x])
 
 
 unlinkAttachmentFiles :: [ Lib.Details ] -> IO ()

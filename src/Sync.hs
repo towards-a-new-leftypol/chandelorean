@@ -38,6 +38,11 @@ import Clients.TinyboardHTML (tinyboardHTMLClient)
 import qualified Network.SpamNoticer as SN
 
 
+import System.Exit (exitSuccess)
+import Debug.Trace (trace)
+println = liftIO . putStrLn
+
+
 consumerSettingsToPartialJSONSettings :: S.ConsumerJSONSettings -> JS.JSONSettings
 consumerSettingsToPartialJSONSettings S.ConsumerJSONSettings {..} =
     JS.JSONSettings
@@ -72,10 +77,15 @@ threadMain csmr_settings boardElem = do
         (API.ChangedThreadsResult changedApiThreads allCatalogApiThreads) <-
             API.getChangedThreads api boardElem
 
+        println "BEGIN"
+        println $ "Number of changedApiThreads: " ++ (show $ length changedApiThreads)
+
         last_modified <- if null changedApiThreads
         then
             return board_last_modified
         else do
+            println "HELLO A"
+
             let changedThreads = map
                         (Lib.apiThreadToArchiveThread $ Board.board_id board)
                         changedApiThreads
@@ -83,17 +93,25 @@ threadMain csmr_settings boardElem = do
             apiPosts :: [ (Thread.Thread, [ JSONPost.Post ]) ] <-
                     API.getWebPosts api boardElem changedThreads
 
+            println $ "getWebPosts result length: " ++ (show $ length apiPosts)
+            println $ "number of JSONPosts in getWebPosts result: " ++ (show $ length (apiPosts >>= snd))
+
+            println "HELLO B"
+
             existingBoardPostIds <- Lib2.liftHttpIO $
                 Client.getPostIdsByBoardIds
                     settings
                     (Board.board_id board)
-                    [ JSONPost.no p
-                    | (_, xs) <- apiPosts
-                    , p <- xs
-                    ]
+                    (apiPosts >>= (map JSONPost.no) . snd)
+
+            println $ "PostId count from Client.getPostIdsByBoardIds results: " ++ (show $ length existingBoardPostIds)
+
+            println "HELLO C"
 
             let existingThreadIds = Set.fromList $
                     map Client.thread_id existingBoardPostIds
+
+            println $ "existingThreadIds size: " ++ (show $ Set.size existingThreadIds)
 
 
             maxLocalIdxMap <- Map.fromList <$> (
@@ -102,6 +120,9 @@ threadMain csmr_settings boardElem = do
                     (Set.toList existingThreadIds)
                 )
 
+            println $ "maxLocalIdxMap (Client.getThreadMaxLocalIdx result) size: " ++ (show $ Map.size maxLocalIdxMap)
+
+            println "HELLO D"
 
             let boardTidTidMap = Lib2.figureOutBoardThreadIdToThreadIdMap
                     (Map.fromList [ (Thread.board_thread_id t, map JSONPost.no jps)
@@ -110,6 +131,8 @@ threadMain csmr_settings boardElem = do
                     (Map.fromList [ (Client.board_post_id postId, Client.thread_id postId)
                     | postId <- existingBoardPostIds
                     ])
+
+            println $ "boardTidTidMap size: " ++ (show $ Map.size boardTidTidMap)
 
             -- at this point the Post.thread_id is undefined, because it's undefined
             -- in the thread because apiThreadToArchiveThread set its to undefined.
@@ -133,18 +156,35 @@ threadMain csmr_settings boardElem = do
                     | (t, jps) <- apiPosts
                     ] :: [ (Thread.Thread, [ (JSONPost.Post, Post.Post) ]) ]
 
+                postAlreadyExists t p =
+                    case Map.lookup (Thread.board_thread_id t) boardTidTidMap of
+                        Nothing -> False
+                        Just tid ->
+                            let p_ = p { Post.thread_id = tid }
+                            in Set.member (Client.idFromPost p_) existingBoardPostIdSet
+
                 existingBoardPostIdSet = Set.fromList existingBoardPostIds
                 missingPostsDetails =
                     [ d
                     | (t, xs) <- changedThreadPosts
                     , (jp, p) <- xs
-                    , Set.notMember (Client.idFromPost p) existingBoardPostIdSet
+                    -- , Set.notMember (trace "RIGHT HERE OFFICER" (Client.idFromPost p)) existingBoardPostIdSet
+                    , not (postAlreadyExists t p)
                     , d <- Lib.parseAttachments (JS.site_url settings) (site, board, t, jp, p)
                     ] :: [ Lib.Details ]
+
+            println $ "changedThreadPosts :: [ (Thread.Thread, [ (JSONPost.Post, Post.Post) ]) ] thread count: " ++
+                (show $ length changedThreadPosts) ++ " combined Post count: " ++ (show $ length $ changedThreadPosts >>= snd)
+            println $ "existingBoardPostIdSet size: " ++ (show $ Set.size existingBoardPostIdSet)
+            println $ "number of missingPostsDetails: " ++ (show $ length missingPostsDetails)
 
             downloadedMissingPosts :: [ Lib.Details ] <- mapM
                 (Lib2.liftHttpIO . Lib2.downloadAttachment)
                 missingPostsDetails
+
+            println $ "downloadedMissingPosts result size (after running downloadAttachment): " ++ (show $ length downloadedMissingPosts)
+
+            println "HELLO E"
 
             let
                 mNoticerSettings = S.spam_noticer csmr_settings
@@ -163,6 +203,8 @@ threadMain csmr_settings boardElem = do
                           , (post, detailsList) <- xs
                           ]
 
+                    println $ "noticerRequestInfos size: " ++ (show $ length noticerRequestInfos)
+
                     let noticerArgs = zip noticerRequestInfos
                             [ i >>=
                                 (\(_, _, _, _, x) ->
@@ -176,10 +218,14 @@ threadMain csmr_settings boardElem = do
 
                     let noticerJobs = S.max_concurrent_requests noticerSettings
 
+                    println $ "SpamNoticer should be given this many requests: " ++ (show $ length noticerArgs)
+
                     noticerResponses <- Lib2.liftHttpIO $ sequence <$> pooledMapConcurrentlyN
                         noticerJobs
                         (uncurry (SN.askNoticer noticerSettings))
                         noticerArgs
+
+                    println $ "noticerResponses size: " ++ (show $ length noticerResponses)
 
                     liftIO $ mapM_ SN.logNoticerNoticed noticerResponses
 
@@ -205,35 +251,92 @@ threadMain csmr_settings boardElem = do
                                 detailsWithSNResponses
                         ) >>= id
 
+            println $ "cleanPostsPerThread length: " ++ (show $ length cleanPostsPerThread)
+            println $ "number of Posts total in cleanPostsPerThread: " ++ (show $ length (cleanPostsPerThread >>= snd))
+
+            println "HELLO F"
 
             -- save new posts
 
             let changedThreads_ = map fst cleanPostsPerThread
 
             newThreads <- Lib2.liftHttpIO $
-                Client.postThreads settings changedThreads_
+                Client.postThreads settings $
+                    filter
+                        (\t -> Map.notMember
+                                (Thread.board_thread_id t) boardTidTidMap
+                        )
+                        changedThreads_
+
+            println $ "newThreads after post: " ++ (show $ length newThreads)
+
+            println "HELLO F2"
 
             let existingThreads_ = (Set.fromList changedThreads_)
                     `Set.difference` (Set.fromList newThreads)
 
+            println $ "existingThreads_ size: " ++ (show $ Set.size existingThreads_)
+
             -- query existing threads to get their thread_ids to be able
             -- to save posts
-
             existingThreads <- Lib2.liftHttpIO $
                 Client.getThreads settings (Board.board_id board) $ Set.toList $
                     Set.map Thread.board_thread_id existingThreads_
 
-            let threadThreadMap = Map.fromList
-                    [ (i, i) | i <- newThreads ++ existingThreads ]
+            println $ "existingThreads (getThreads response) length: " ++ (show $ length existingThreads)
+
+            -- let threadThreadIdMap = Map.union
+            --         (Map.fromList [ (i, Thread.thread_id i) | i <- newThreads ])
+            --         (Map.fromList
+            --             [ (i, tid)
+            --             | i <- changedThreads_
+            --             , (Just tid) <- Map.lookup (Thread.board_thread_id i) boardTidTidMap : []
+            --             ]
+            --         )
+                
+--             let threadThreadMap = Map.fromList
+--                     [ (i, i) | i <- newThreads ++ existingThreads ]
 
             -- At this point thread_id is still undefined for Thread and Post
             let
+                threadIdByBoardTid = Map.unions
+                        [ Map.fromList
+                            [ (Thread.board_thread_id t, Thread.thread_id t)
+                            | t <- newThreads ++ existingThreads
+                            ]
+
+                        , boardTidTidMap
+                        ]
+
+                -- cleanPPTWithThreadIds = map
+                --     ( \(t, xs) ->
+                --         let t_ = t { Thread.thread_id = (Map.!) threadThreadIdMap t }
+                --         -- let t_ = (Map.!) threadThreadMap t
+                --         in
+                --             ( t_
+                --             , [ (p { Post.thread_id = Thread.thread_id t_ }, ds)
+                --               | (p, ds) <- xs
+                --               ]
+                --             )
+                --     )
+                --     cleanPostsPerThread
+
+
                 cleanPPTWithThreadIds = map
                     ( \(t, xs) ->
-                        let t_ = (Map.!) threadThreadMap t
+                        let btid = Thread.board_thread_id t
+                            tid  =
+                                case Map.lookup btid threadIdByBoardTid of
+                                    Just x -> x
+                                    Nothing ->
+                                        error $
+                                            "BUG: no local thread_id for board_thread_id "
+                                            ++ show btid
+
+                            t_ = t { Thread.thread_id = tid }
                         in
                             ( t_
-                            , [ (p { Post.thread_id = Thread.thread_id t_ }, ds)
+                            , [ (p { Post.thread_id = tid }, ds)
                               | (p, ds) <- xs
                               ]
                             )
@@ -246,47 +349,116 @@ threadMain csmr_settings boardElem = do
                     , x <- xs
                     ]
 
+            println $ "threadIdByBoardTid size: " ++ (show $ Map.size threadIdByBoardTid)
+            println $ "cleanPPTWithThreadIds length: " ++ (show $ length cleanPPTWithThreadIds)
+            println $ "number of Posts total in cleanPPTWithThreadIds: " ++ (show $ length (cleanPPTWithThreadIds >>= snd))
+            println $ "postsToSave length: " ++ (show $ length postsToSave)
+
             newPosts <- Lib2.liftHttpIO $
                 Client.postPosts settings (map fst postsToSave)
+
+            println $ "newPosts (postPosts response) length: " ++ (show $ length newPosts)
+
+            println "HELLO G"
 
             let existingPostIds = Set.fromList (map (Client.idFromPost . fst) postsToSave)
                     `Set.difference` Set.fromList (map Client.idFromPost newPosts)
 
+            println $ "existingPostIds set size: " ++ (show $ Set.size existingPostIds)
+
             existingPosts <- Lib2.liftHttpIO $
                 Client.getPosts settings $ Set.toList existingPostIds
 
-            let postIdMap = Map.fromList
-                    [ (Client.idFromPost p, p) | p <- newPosts ++ existingPosts ]
+            println $ "existingPosts set size: " ++ (show $ Set.size existingPostIds)
+
+            println "HELLO H"
+
+            let
+                postIdMap = Map.fromList
+                    [ (Client.idFromPost p, p)
+                    | p <- newPosts ++ existingPosts ]
+
+                detailsWithFreshPosts =
+                    [ (s, b, t_, p, mat)
+                    | (t_, xs) <- cleanPPTWithThreadIds
+                    , (p, ds) <- xs
+                    , d <- ds
+                    , let (s, b, _oldT, _oldP, mat) = d
+                    ]
+
+            println $ "postIdMap size: " ++ (show $ Map.size postIdMap)
+            println $ "detailsWithFreshPosts length: " ++ (show $ length detailsWithFreshPosts)
 
             -- take the post details, compute the sha256 hash for the
             -- attachment and set the post_id in the post and the attachment
+            -- finalDetails <- liftIO $ mapM
+            --     ( \(s, b, t, p_, mat) ->
+            --         let p = (Map.!) postIdMap (Client.idFromPost p_)
+            --         in case mat of
+            --             Nothing -> return (s, b, t, p , Nothing)
+            --             Just (paths, attachment) -> do
+            --                 a <- Lib.computeAttachmentHash
+            --                     paths
+            --                     ( attachment
+            --                         { At.post_id = fromJust $ Post.post_id p
+            --                         }
+            --                     )
+            --                 return (s, b, t, p, Just (paths, a))
+            --     )
+            --     [ d
+            --     | (_, xs) <- cleanPostsPerThread
+            --     , (_, ds) <- xs
+            --     , d <- ds
+            --     ]
+
             finalDetails <- liftIO $ mapM
-                ( \(s, b, t, p_, mat) ->
-                    let p = (Map.!) postIdMap (Client.idFromPost p_)
-                    in case mat of
-                        Nothing -> return (s, b, t, p , Nothing)
-                        Just (paths, attachment) -> do
-                            a <- Lib.computeAttachmentHash
-                                paths
-                                ( attachment
-                                    { At.post_id = fromJust $ Post.post_id p
-                                    }
-                                )
-                            return (s, b, t, p, Just (paths, a))
+                ( \(s, b, t_, p_, mat) ->
+                    let key = Client.idFromPost p_
+                        p =
+                            case Map.lookup key postIdMap of
+                                Just x -> x
+                                Nothing ->
+                                    error $
+                                        "BUG: postIdMap missing post key "
+                                        ++ show key
+                                        ++ " (board_post_id="
+                                        ++ show (Post.board_post_id p_)
+                                        ++ ", thread_id="
+                                        ++ show (Post.thread_id p_)
+                                        ++ ")"
+                    in
+                        case mat of
+                            Nothing ->
+                                return (s, b, t_, p, Nothing)
+
+                            Just (paths, attachment) -> do
+                                a <- Lib.computeAttachmentHash
+                                    paths
+                                    ( attachment
+                                        { At.post_id = fromJust $ Post.post_id p
+                                        }
+                                    )
+                                return (s, b, t_, p, Just (paths, a))
                 )
-                [ d
-                | (_, xs) <- cleanPostsPerThread
-                , (_, ds) <- xs
-                , d <- ds
-                ]
+                detailsWithFreshPosts
+
+            println $ "finalDetails length: " ++ (show $ length finalDetails)
+
+            println "HELLO I"
 
             _savedAttachments <- Lib2.liftHttpIO $ Client.postAttachments settings
                 [ a
                 | (_, _, _, _, Just (_, a)) <- finalDetails
                 ]
 
+            println $ "_savedAttachments (postAttachments result) length: " ++ (show $ length _savedAttachments)
+
+            println "HELLO J"
+
             liftIO $ mapM_ (Lib.copyOrMoveFiles settings Lib.moveAttachmentAndThumb)
                 finalDetails
+
+            println "HELLO K"
 
             -- post all the attachments
             --  - how? Well we need to shove post_id into attachment,
@@ -299,8 +471,9 @@ threadMain csmr_settings boardElem = do
             _ <- Lib2.liftHttpIO $
                     Client.updatePostAttachmentNotConsidered
                         settings
-                        (map Thread.thread_id $ newThreads ++ existingThreads)
+                        (map (Thread.thread_id . fst) cleanPPTWithThreadIds)
 
+            println "HELLO L"
 
             -- result is the most recent timestamp of all the posts we just saved
             return $ foldr max board_last_modified $ map Post.creation_time
