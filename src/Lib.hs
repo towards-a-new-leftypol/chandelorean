@@ -18,7 +18,6 @@ module Lib
     , SettingsCLI (..)
     , epochToUTCTime
     , apiThreadToArchiveThread
-    , addPostsToTuples
     , Details
     , parseAttachments
     , computeAttachmentHash
@@ -42,7 +41,6 @@ import qualified Data.Set as Set
 import Data.Set (Set)
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 import Data.Time.Clock (UTCTime)
-import qualified Data.Map as Map
 import Data.Maybe (fromJust)
 import Data.Text (Text, unpack, toLower)
 import qualified Data.Text as T
@@ -179,21 +177,6 @@ apiPostToArchivePost local_idx thread post =
         sanitize = T.filter (/= '\x00')
 
 
-addPostsToTuples
-    :: [(Sites.Site, Boards.Board, Threads.Thread, JSONPost.Post)]
-    -> [ Posts.Post ]
-    -> [(Sites.Site, Boards.Board, Threads.Thread, JSONPost.Post, Posts.Post)]
-addPostsToTuples tuples posts = map f posts
-    where
-        post_map :: Map.Map (Int64, Int64) (Sites.Site, Boards.Board, Threads.Thread, JSONPost.Post)
-        post_map = Map.fromList (map (\(a, b, c, d) -> ((Threads.thread_id c, JSONPost.no d), (a, b, c, d))) tuples)
-
-        f :: Posts.Post -> (Sites.Site, Boards.Board, Threads.Thread, JSONPost.Post, Posts.Post)
-        f new_post =
-            (\(a, b, c, d) -> (a, b, c, d, new_post))
-            (post_map Map.! (Posts.thread_id new_post, Posts.board_post_id new_post))
-
-
 fileToAttachment :: Int -> Posts.Post -> JS.File -> At.Attachment
 fileToAttachment i post file =
     At.Attachment
@@ -249,6 +232,7 @@ makeThreadAttachmentFsPath settings site board thread_id
     </> Sites.name site
     </> Boards.pathpart board
     </> (show thread_id)
+
 
 copyOrMoveFiles
     :: J.JSONSettings
