@@ -37,9 +37,6 @@ import Clients.LainJSONClient (lainJSONClient)
 import Clients.TinyboardHTML (tinyboardHTMLClient)
 import qualified Network.SpamNoticer as SN
 
-
-import System.Exit (exitSuccess)
-import Debug.Trace (trace)
 println = liftIO . putStrLn
 
 
@@ -272,55 +269,16 @@ threadMain csmr_settings boardElem = do
 
             println "HELLO F2"
 
-            let existingThreads_ = (Set.fromList changedThreads_)
-                    `Set.difference` (Set.fromList newThreads)
-
-            println $ "existingThreads_ size: " ++ (show $ Set.size existingThreads_)
-
-            -- query existing threads to get their thread_ids to be able
-            -- to save posts
-            existingThreads <- Lib2.liftHttpIO $
-                Client.getThreads settings (Board.board_id board) $ Set.toList $
-                    Set.map Thread.board_thread_id existingThreads_
-
-            println $ "existingThreads (getThreads response) length: " ++ (show $ length existingThreads)
-
-            -- let threadThreadIdMap = Map.union
-            --         (Map.fromList [ (i, Thread.thread_id i) | i <- newThreads ])
-            --         (Map.fromList
-            --             [ (i, tid)
-            --             | i <- changedThreads_
-            --             , (Just tid) <- Map.lookup (Thread.board_thread_id i) boardTidTidMap : []
-            --             ]
-            --         )
-                
---             let threadThreadMap = Map.fromList
---                     [ (i, i) | i <- newThreads ++ existingThreads ]
-
             -- At this point thread_id is still undefined for Thread and Post
             let
                 threadIdByBoardTid = Map.unions
                         [ Map.fromList
                             [ (Thread.board_thread_id t, Thread.thread_id t)
-                            | t <- newThreads ++ existingThreads
+                            | t <- newThreads
                             ]
 
                         , boardTidTidMap
                         ]
-
-                -- cleanPPTWithThreadIds = map
-                --     ( \(t, xs) ->
-                --         let t_ = t { Thread.thread_id = (Map.!) threadThreadIdMap t }
-                --         -- let t_ = (Map.!) threadThreadMap t
-                --         in
-                --             ( t_
-                --             , [ (p { Post.thread_id = Thread.thread_id t_ }, ds)
-                --               | (p, ds) <- xs
-                --               ]
-                --             )
-                --     )
-                --     cleanPostsPerThread
-
 
                 cleanPPTWithThreadIds = map
                     ( \(t, xs) ->
@@ -389,28 +347,6 @@ threadMain csmr_settings boardElem = do
             println $ "postIdMap size: " ++ (show $ Map.size postIdMap)
             println $ "detailsWithFreshPosts length: " ++ (show $ length detailsWithFreshPosts)
 
-            -- take the post details, compute the sha256 hash for the
-            -- attachment and set the post_id in the post and the attachment
-            -- finalDetails <- liftIO $ mapM
-            --     ( \(s, b, t, p_, mat) ->
-            --         let p = (Map.!) postIdMap (Client.idFromPost p_)
-            --         in case mat of
-            --             Nothing -> return (s, b, t, p , Nothing)
-            --             Just (paths, attachment) -> do
-            --                 a <- Lib.computeAttachmentHash
-            --                     paths
-            --                     ( attachment
-            --                         { At.post_id = fromJust $ Post.post_id p
-            --                         }
-            --                     )
-            --                 return (s, b, t, p, Just (paths, a))
-            --     )
-            --     [ d
-            --     | (_, xs) <- cleanPostsPerThread
-            --     , (_, ds) <- xs
-            --     , d <- ds
-            --     ]
-
             finalDetails <- liftIO $ mapM
                 ( \(s, b, t_, p_, mat) ->
                     let key = Client.idFromPost p_
@@ -459,14 +395,6 @@ threadMain csmr_settings boardElem = do
                 finalDetails
 
             println "HELLO K"
-
-            -- post all the attachments
-            --  - how? Well we need to shove post_id into attachment,
-            --  - need to shove sha256 into attachment ✓
-            --  - details -> details ✓
-            --  then details -> postAttachments ✓
-            --  then details -> copyOrMove ✓
-            --  then details -> update not considered ✓
 
             _ <- Lib2.liftHttpIO $
                     Client.updatePostAttachmentNotConsidered
