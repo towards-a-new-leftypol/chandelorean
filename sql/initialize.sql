@@ -357,13 +357,11 @@ $$ LANGUAGE sql;
 -- 1:21 for full db (nothing inserted)
 
 
--- TODO: this can be deleted
 CREATE TYPE post_key AS
     ( thread_id bigint
     , board_post_id bigint
     );
 
--- TODO: this can be deleted
 CREATE OR REPLACE FUNCTION get_posts(board_posts post_key[])
 RETURNS SETOF posts AS $$
 

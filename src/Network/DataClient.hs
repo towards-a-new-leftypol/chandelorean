@@ -229,22 +229,24 @@ postAttachments settings attachments = eitherDecodeResponse <$>
 
 
 -- | Get board_post_id based on the board_id and a list of board_post_ids
-getPostIdsChunk :: T.JSONSettings -> Int -> [ Int64 ] -> IO (Either HttpError [ PostId ])
-getPostIdsChunk settings board_id board_post_ids = eitherDecodeResponse <$>
+getPostIdsChunk :: T.JSONSettings -> Int -> [ Int64 ] -> [ Int64 ] -> IO (Either HttpError [ PostId ])
+getPostIdsChunk settings board_id board_thread_ids board_post_ids = eitherDecodeResponse <$>
     get settings path
 
     where
         path = "/posts?select=thread_id,board_post_id,threads:thread_id!inner()&board_post_id=in.("
             ++ intercalate "," (map show board_post_ids)
+            ++ ")&threads.board_thread_id=in.("
+            ++ intercalate "," (map show board_thread_ids)
             ++ ")&threads.board_id=eq." ++ show board_id
             ++ "&attachment_not_considered=eq.false"
 
 
-getPostIdsByBoardIds :: T.JSONSettings -> Int -> [ Int64 ] -> IO (Either HttpError [ PostId ] )
-getPostIdsByBoardIds _ _ [] = pure $ Right []
-getPostIdsByBoardIds settings board_id board_post_ids =
+getPostIdsByBoardIds :: T.JSONSettings -> Int -> [ Int64 ] -> [ Int64 ] -> IO (Either HttpError [ PostId ] )
+getPostIdsByBoardIds _ _ _ [] = pure $ Right []
+getPostIdsByBoardIds settings board_id board_thread_ids board_post_ids =
     combineResults <$>
-        traverse (getPostIdsChunk settings board_id) (chunkList chunkSize board_post_ids)
+        traverse (getPostIdsChunk settings board_id board_thread_ids) (chunkList chunkSize board_post_ids)
 
     where
         chunkSize = 1000

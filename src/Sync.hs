@@ -30,6 +30,7 @@ import qualified BoardQueueElem as QE
 import qualified PriorityQueue as PQ
 import qualified Lib2
 import qualified Network.Api.JSONPost as JSONPost
+import qualified Network.Api.JSONParsing as JSONThread
 import qualified Common.PostsType as Post
 import qualified Common.AttachmentType as At
 import qualified ClientAPI as API
@@ -37,6 +38,7 @@ import Clients.LainJSONClient (lainJSONClient)
 import Clients.TinyboardHTML (tinyboardHTMLClient)
 import qualified Network.SpamNoticer as SN
 
+println :: String -> Lib2.IOe ()
 println = liftIO . putStrLn
 
 
@@ -61,7 +63,8 @@ mkJsonSettings cs site = (consumerSettingsToPartialJSONSettings cs)
 
 threadMain :: S.ConsumerJSONSettings -> QE.BoardQueueElem -> IO QE.BoardQueueElem
 threadMain csmr_settings boardElem = do
-    putStrLn $ Board.pathpart $ QE.board boardElem
+    putStrLn $ (Board.pathpart $ QE.board boardElem)
+            ++ " last touched: " ++ show (QE.last_modified boardElem)
 
     thread_results <- runExceptT $ do
         let
@@ -76,6 +79,11 @@ threadMain csmr_settings boardElem = do
 
         println "BEGIN"
         println $ "Number of changedApiThreads: " ++ (show $ length changedApiThreads)
+        mapM_
+            (\t -> println $ "board_thread_id: " ++ (show $ JSONThread.no t)
+                ++ " last modified: " ++ (show $ Lib.epochToUTCTime $ JSONThread.last_modified t)
+            )
+            changedApiThreads
 
         last_modified <- if null changedApiThreads
         then
@@ -99,6 +107,7 @@ threadMain csmr_settings boardElem = do
                 Client.getPostIdsByBoardIds
                     settings
                     (Board.board_id board)
+                    (map (Thread.board_thread_id . fst) apiPosts)
                     (apiPosts >>= (map JSONPost.no) . snd)
 
             println $ "PostId count from Client.getPostIdsByBoardIds results: " ++ (show $ length existingBoardPostIds)
@@ -403,12 +412,22 @@ threadMain csmr_settings boardElem = do
 
             println "HELLO L"
 
-            -- result is the most recent timestamp of all the posts we just saved
-            return $ foldr max board_last_modified $ map Post.creation_time
-                [ post
-                | (_, xs) <- postsPerThread
-                , (post, _) <- xs
-                ]
+            if null missingPostsDetails
+            then
+                -- this will be hit if we just start the scraper and the last
+                -- post on this board was saged, the thread_bump_time_slices table
+                -- won't have the saged post record, and the process will try
+                -- to query those threads
+                return $ foldl' max board_last_modified
+                    [ Lib.epochToUTCTime $ JSONThread.last_modified t
+                    | t <- changedApiThreads ]
+            else
+                -- result is the most recent timestamp of all the posts we just saved
+                return $ foldr max board_last_modified $ map Post.creation_time
+                    [ post
+                    | (_, xs) <- postsPerThread
+                    , (post, _) <- xs
+                    ]
 
         Lib2.removeDeletedThreads settings boardElem allCatalogApiThreads
         return (last_modified, Just allCatalogApiThreads)
