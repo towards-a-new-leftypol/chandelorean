@@ -105,7 +105,7 @@ pageSize :: Int
 pageSize = 100
 
 attachmentsCount :: Int 
-attachmentsCount = 1000
+attachmentsCount = 20000
 
 main :: IO ()
 main = do

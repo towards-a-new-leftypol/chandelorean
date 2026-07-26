@@ -39,7 +39,8 @@ import Clients.TinyboardHTML (tinyboardHTMLClient)
 import qualified Network.SpamNoticer as SN
 
 println :: String -> Lib2.IOe ()
-println = liftIO . putStrLn
+println = const $ return ()
+-- println = liftIO . putStrLn
 
 
 consumerSettingsToPartialJSONSettings :: S.ConsumerJSONSettings -> JS.JSONSettings
