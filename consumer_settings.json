@@ -1,17 +1,31 @@
 {
   "websites": [
     {
-      "name": "example",
-      "root_url": "https://example.net",
+      "name": "siteA",
+      "root_url": "https://example.com",
       "boards": [
-        "tech",
-        "meta"
-      ]
+        "cars",
+        "trains"
+      ],
+      "client_api_type": "LainJSON"
+    },
+    {
+      "name": "siteB",
+      "root_url": "https://boards.exampleB.org",
+      "boards": [
+        "music",
+        "tech"
+      ],
+      "client_api_type": "LainJSON"
     }
   ],
   "postgrest_url": "http://localhost:3000",
   "jwt": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJyb2xlIjoiY2hhbl9hcmNoaXZlciJ9.rGIKZokTDKTuQLIv8138bUby5PELfDipYYIDpJzH02c",
   "media_root_path": "/home/phil/linixy/tmp/chan_archive_media_repaired/archive",
-  "http_fill_all": false,
-  "http_sync_continously": true
+  "sync_max_concurrent_workers": 1,
+  "sync_loop_timeout_microseconds": 5000000,
+  "spam_noticer": {
+    "base_url": "http://localhost:3300",
+    "max_concurrent_requests": 5
+  }
 }
