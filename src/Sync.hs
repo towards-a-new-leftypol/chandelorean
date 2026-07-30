@@ -199,7 +199,13 @@ threadMain csmr_settings boardElem = do
 
             cleanPostsPerThread <- case mNoticerSettings of
                 Nothing -> return postsPerThread
-                Just noticerSettings -> do
+                Just noticerSettings ->
+                    let skipCheck =
+                            maybe
+                                False
+                                (Set.member (Site.name site))
+                                (S.trusted_sites noticerSettings)
+                    in if skipCheck then return postsPerThread else do
 
                     noticerRequestInfos <- liftIO $ mapM
                           ( \(a, b, c, d, e) ->

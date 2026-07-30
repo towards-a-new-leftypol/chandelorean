@@ -8,6 +8,7 @@ import System.Console.CmdArgs (cmdArgs, Data, Typeable)
 import Data.Text (Text)
 import GHC.Generics
 import Data.Aeson (decode, FromJSON, ToJSON)
+import Data.Set (Set)
 
 data ClientApiType = LainJSON | TinyboardHTML
     deriving (Eq, Show, Generic)
@@ -39,6 +40,7 @@ data SpamNoticerSettings =
     SpamNoticerSettings
         { base_url :: String
         , max_concurrent_requests :: Int
+        , trusted_sites :: Maybe (Set String)
         } deriving (Show, Generic, ToJSON, FromJSON)
 
 newtype CliArgs = CliArgs
