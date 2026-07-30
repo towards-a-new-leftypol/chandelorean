@@ -159,6 +159,7 @@ deleteThreads settings board_id board_thread_ids =
 
 
 getThreadMaxLocalIdx :: T.JSONSettings -> [ Int64 ] -> IO (Either HttpError [(Int64, Int)])
+getThreadMaxLocalIdx _ [] = return $ return mempty
 getThreadMaxLocalIdx settings thread_ids = do
     result :: Either HttpError [ T.ThreadMaxIdx ] <- eitherDecodeResponse <$> get settings path
 
@@ -220,6 +221,7 @@ postAttachments
     :: T.JSONSettings
     -> [ Attachments.Attachment ]
     -> IO (Either HttpError [ Attachments.Attachment ])
+postAttachments _ [] = return $ return mempty
 postAttachments settings attachments = eitherDecodeResponse <$>
     post settings "/attachments" payload
         defaultOptions { returnRepresentation = True }
@@ -274,6 +276,7 @@ postPosts
     :: T.JSONSettings
     -> [ Posts.Post ]
     -> IO (Either HttpError [ Posts.Post ])
+postPosts _ [] = return $ return mempty
 postPosts settings posts = eitherDecodeResponse <$>
     post settings path payload
         defaultOptions { returnRepresentation = True, ignoreDuplicates = True }
@@ -320,11 +323,12 @@ getLatestPostsPerBoard settings = eitherDecodeResponse <$>
 
 
 updatePostAttachmentNotConsidered :: T.JSONSettings -> [ Int64 ] -> IO (Either HttpError LBS.ByteString )
-updatePostAttachmentNotConsidered settings post_ids =
+updatePostAttachmentNotConsidered _ [] = return $ Right LBS.empty
+updatePostAttachmentNotConsidered settings thread_ids =
     patch settings path payload False
 
     where
-        path = "/posts?thread_id=in.(" ++ intercalate "," (map show post_ids) ++ ")&attachment_not_considered=eq.true"
+        path = "/posts?thread_id=in.(" ++ intercalate "," (map show thread_ids) ++ ")&attachment_not_considered=eq.true"
         payload = encode $ object [ "attachment_not_considered" .= False ]
 
 
