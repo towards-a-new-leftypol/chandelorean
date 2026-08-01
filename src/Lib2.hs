@@ -100,6 +100,7 @@ downloadAttachment (a, b, c, d, Just (paths, f)) = do
         case file_result of
             -- return Right if we get 404, to keep going and just save the Post without this attachment
             Left (Client.StatusCodeError 404 _) -> return $ Right Nothing
+            Left (Client.StatusCodeError 451 _) -> return $ Right Nothing
             Left e -> return $ Left e
             Right filepath -> do
                 case At.thumbnail_path paths of
