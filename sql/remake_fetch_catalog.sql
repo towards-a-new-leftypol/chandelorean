@@ -50,48 +50,131 @@ $$ LANGUAGE sql;
 
 CREATE OR REPLACE FUNCTION fetch_catalog2(
     selected_time timestamptz,
-    board_ids   int[] DEFAULT NULL,
-    scroll_time   timestamptz DEFAULT 'infinity'::timestamptz,
-    thread_count  int DEFAULT 1000
+    board_ids int[] DEFAULT NULL,
+    scroll_time timestamptz DEFAULT NULL,
+    scroll_thread_id bigint DEFAULT NULL,
+    thread_count int DEFAULT 1000,
+    go_up boolean DEFAULT false
 ) RETURNS SETOF catalog_grid_result AS $$
 BEGIN
-RETURN QUERY WITH active_slices AS (
-    SELECT thread_id, board_id, valid_from AS bump_time, post_count
-    FROM thread_bump_time_slices
-    WHERE valid_from <= selected_time
-      AND valid_until > selected_time
-      AND valid_from < scroll_time
-      AND (board_ids IS NULL OR board_id = ANY(board_ids))
-    ORDER BY valid_from DESC
-    LIMIT thread_count
-)
-SELECT 
-    s.post_count::bigint AS estimated_post_count,
-    p.post_id,
-    p.board_post_id,
-    p.creation_time,
-    s.bump_time,
-    p.body,
-    p.subject,
-    s.thread_id,
-    p.embed,
-    t.board_thread_id,
-    b.pathpart,
-    st.name AS site_name,
-    st.site_id AS site_id,
-    a.mimetype AS file_mimetype,
-    a.illegal AS file_illegal,
-    a.resolution AS file_resolution,
-    a.board_filename AS file_name,
-    a.file_extension,
-    a.thumb_extension AS file_thumb_extension
-FROM active_slices s
-JOIN posts p ON p.thread_id = s.thread_id AND p.local_idx = 1
-JOIN threads t ON s.thread_id = t.thread_id
-JOIN boards b ON t.board_id = b.board_id
-JOIN sites st ON b.site_id = st.site_id
-LEFT JOIN attachments a ON a.post_id = p.post_id AND a.attachment_idx = 1
-ORDER BY s.bump_time DESC;
+    IF go_up AND scroll_time IS NOT NULL THEN
+        RETURN QUERY
+        WITH active_slices AS (
+            SELECT
+                thread_id,
+                board_id,
+                valid_from AS bump_time,
+                post_count
+            FROM thread_bump_time_slices
+            WHERE valid_from <= selected_time
+              AND valid_until > selected_time
+              AND (board_ids IS NULL OR board_id = ANY(board_ids))
+              AND (
+                    valid_from > scroll_time
+                    OR (
+                        scroll_thread_id IS NOT NULL
+                        AND valid_from = scroll_time
+                        AND thread_id > scroll_thread_id
+                    )
+                  )
+            ORDER BY valid_from ASC, thread_id ASC
+            LIMIT thread_count
+        )
+        SELECT
+            s.post_count::bigint AS estimated_post_count,
+            p.post_id,
+            p.board_post_id,
+            p.creation_time,
+            s.bump_time,
+            p.body,
+            p.subject,
+            s.thread_id,
+            p.embed,
+            t.board_thread_id,
+            b.pathpart,
+            st.name AS site_name,
+            st.site_id AS site_id,
+            a.mimetype AS file_mimetype,
+            a.illegal AS file_illegal,
+            a.resolution AS file_resolution,
+            a.board_filename AS file_name,
+            a.file_extension,
+            a.thumb_extension AS file_thumb_extension
+        FROM active_slices s
+        JOIN posts p
+          ON p.thread_id = s.thread_id
+         AND p.local_idx = 1
+        JOIN threads t
+          ON s.thread_id = t.thread_id
+        JOIN boards b
+          ON t.board_id = b.board_id
+        JOIN sites st
+          ON b.site_id = st.site_id
+        LEFT JOIN attachments a
+          ON a.post_id = p.post_id
+         AND a.attachment_idx = 1
+        ORDER BY s.bump_time DESC, s.thread_id DESC;
+    ELSE
+        RETURN QUERY
+        WITH active_slices AS (
+            SELECT
+                thread_id,
+                board_id,
+                valid_from AS bump_time,
+                post_count
+            FROM thread_bump_time_slices
+            WHERE valid_from <= selected_time
+              AND valid_until > selected_time
+              AND (board_ids IS NULL OR board_id = ANY(board_ids))
+              AND (
+                    scroll_time IS NULL
+                    OR valid_from < scroll_time
+                    OR (
+                        scroll_thread_id IS NOT NULL
+                        AND valid_from = scroll_time
+                        AND thread_id < scroll_thread_id
+                    )
+                  )
+            ORDER BY valid_from DESC, thread_id DESC
+            LIMIT thread_count
+        )
+        SELECT
+            s.post_count::bigint AS estimated_post_count,
+            p.post_id,
+            p.board_post_id,
+            p.creation_time,
+            s.bump_time,
+            p.body,
+            p.subject,
+            s.thread_id,
+            p.embed,
+            t.board_thread_id,
+            b.pathpart,
+            st.name AS site_name,
+            st.site_id AS site_id,
+            a.mimetype AS file_mimetype,
+            a.illegal AS file_illegal,
+            a.resolution AS file_resolution,
+            a.board_filename AS file_name,
+            a.file_extension,
+            a.thumb_extension AS file_thumb_extension
+        FROM active_slices s
+        JOIN posts p
+          ON p.thread_id = s.thread_id
+         AND p.local_idx = 1
+        JOIN threads t
+          ON s.thread_id = t.thread_id
+        JOIN boards b
+          ON t.board_id = b.board_id
+        JOIN sites st
+          ON b.site_id = st.site_id
+        LEFT JOIN attachments a
+          ON a.post_id = p.post_id
+         AND a.attachment_idx = 1
+        ORDER BY s.bump_time DESC, s.thread_id DESC;
+    END IF;
+END
+$$ LANGUAGE plpgsql stable;
 
 END
 $$ LANGUAGE plpgsql stable;
