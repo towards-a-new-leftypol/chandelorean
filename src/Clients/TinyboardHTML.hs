@@ -34,7 +34,7 @@ httpGetCatalogHTML
   -> IOe [ Thread ]
 httpGetCatalogHTML site board = parseCatalogPageHTML <$> httpGet site path
     where
-        path = B.pathpart board </> "catalog.json"
+        path = B.pathpart board </> "catalog"
 
 
 parseCatalogPageHTML :: LBS.ByteString -> [ Thread ]

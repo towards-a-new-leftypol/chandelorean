@@ -5,11 +5,12 @@ let
 
   perceptual-hash = import ./nix-support/perceptual-hash.nix { inherit nixpkgs; };
   http-conduit = import ./src/Common/nix-support/http-conduit.nix { inherit nixpkgs; };
+  html-parse = import ./nix-support/html-parse.nix { inherit nixpkgs; };
 
   f = { mkDerivation, base, stdenv, cabal-install,
         aeson, safe-exceptions, bytestring, cmdargs,
         http-conduit, cryptonite, memory, mime-types,
-        perceptual-hash, unliftio
+        perceptual-hash, unliftio, html-parse
       }:
       mkDerivation {
         pname = "chan-delorean";
@@ -19,7 +20,7 @@ let
         isExecutable = true;
         executableHaskellDepends = [
           base safe-exceptions aeson bytestring cmdargs http-conduit
-          cryptonite memory mime-types perceptual-hash unliftio
+          cryptonite memory mime-types perceptual-hash unliftio html-parse
         ];
         testHaskellDepends = [ cabal-install ];
         license = "unknown";
@@ -34,6 +35,7 @@ let
   drv = variant (haskellPackages.callPackage f {
     perceptual-hash = perceptual-hash;
     http-conduit = http-conduit.http-conduit;
+    html-parse = html-parse;
   });
 
   enhancedDrv = if pkgs.lib.inNixShell

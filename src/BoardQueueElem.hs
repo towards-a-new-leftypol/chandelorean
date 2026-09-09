@@ -13,7 +13,7 @@ data BoardQueueElem = BoardQueueElem
     , last_modified :: UTCTime
     , last_catalog :: Maybe [ Thread ]
     , client_api_type :: ClientApiType
-    } deriving (Eq)
+    } deriving Eq
 
 instance Show BoardQueueElem where
     show :: BoardQueueElem -> String
