@@ -17,49 +17,8 @@ import Control.Monad (guard)
 import Network.Mime (defaultMimeLookup)
 import Data.Text.Encoding (decodeUtf8)
 
-import HtmlParsingUtils
-
-data File = File
-  { id         :: Text
-  , mime       :: Maybe Text
-  , ext        :: Text
-  , h          :: Maybe Int
-  , w          :: Maybe Int
-  , fsize      :: Int
-  , filename   :: Text
-  , spoiler    :: Maybe Bool
-  , md5        :: Text
-  , file_path  :: Text
-  , thumb_path :: Text
-  } deriving (Show, Eq, Ord)
-
-data Post = Post
-    { no             :: Int64
-    , com            :: Maybe Text
-    , name           :: Maybe Text
-    , sub            :: Maybe Text
-    , email          :: Maybe Text
-    , time           :: Int
-    , omitted_posts  :: Maybe Int
-    , omitted_images :: Maybe Int
-    , sticky         :: Maybe Int
-    , locked         :: Maybe Int
-    , cyclical       :: Maybe Bool
-    , last_modified  :: Int
-    , embed          :: Maybe Text
-    , files          :: Maybe [ File ]
-    , resto          :: Int
-    , unique_ips     :: Maybe Int
-    -- legacy attributes
-    , filename_      :: Maybe Text
-    , h_             :: Maybe Int
-    , w_             :: Maybe Int
-    , ext_           :: Maybe Text
-    , tim_           :: Maybe Text
-    , fsize_         :: Maybe Int
-    , spoiler_       :: Maybe Int
-    , extra_files_   :: Maybe [ Text ]
-    } deriving Show
+import Parsing.HtmlParsingUtils
+import Network.Api.JSONParsing as J
 
 -- ==============================================================================
 -- HELPERS

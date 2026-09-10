@@ -1,5 +1,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+module Parsing.VichanCCThreadHtmlParser where
+
 import Data.Text (Text)
 import qualified Data.Text as Txt
 import qualified Data.Text.IO as Txt
@@ -13,33 +15,8 @@ import Data.Int (Int64)
 import Data.Time.Clock (getCurrentTime, UTCTime)
 import Data.Time.Clock.POSIX (posixSecondsToUTCTime, utcTimeToPOSIXSeconds)
 
-import HtmlParsingUtils
-
-type File = Text
-type Cyclical = Bool
-
-
-data Thread = Thread
-  { no             :: Int64
-  , sub            :: Maybe Text
-  , com            :: Maybe Text
-  , name           :: Maybe Text
-  , capcode        :: Maybe Text
-  , time           :: Int
-  , omitted_posts  :: Maybe Int
-  , omitted_images :: Maybe Int
-  , replies        :: Maybe Int
-  , images         :: Maybe Int
-  , sticky         :: Maybe Int
-  , locked         :: Maybe Int
-  , cyclical       :: Maybe Cyclical
-  , last_modified  :: Int
-  -- , board          :: Text
-  , files          :: Maybe [ File ]
-  , resto          :: Int
-  , unique_ips     :: Maybe Int
-  } deriving Show
-
+import Parsing.HtmlParsingUtils
+import Network.Api.JSONParsing as J
 
 processCatalogPage :: Text -> IO ()
 processCatalogPage htmlText =

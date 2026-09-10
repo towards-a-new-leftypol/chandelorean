@@ -1,6 +1,6 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module HtmlParsingUtils where
+module Parsing.HtmlParsingUtils where
 
 import Data.Text (Text)
 import qualified Data.Text as T
