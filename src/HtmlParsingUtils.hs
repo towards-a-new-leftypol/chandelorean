@@ -12,43 +12,56 @@ import Data.Time.Format
 import Data.Time.Clock.POSIX
 import Text.Read (readMaybe)
 import Control.Monad (guard)
+import qualified Data.Attoparsec.Text as A
+import Data.List (unfoldr)
 
 import Text.HTML.Parser
 import Text.HTML.Tree
+
+
+-- | A token paired with the exact raw source text it was parsed from.
+data RawToken = RawToken
+    { rawSource :: !Text
+    , tokenVal  :: !Token
+    } deriving (Show, Eq, Ord)
+
 
 {-
  - NAVIGATION
  -}
 
--- | Find all descendant nodes (Trees) that possess a given CSS class.
--- We search the 'Forest' (list of trees) recursively.
-findByClass :: Text -> Forest Token -> [Tree Token]
-findByClass targetClass forest = concatMap go forest
+-- | Find all descendant nodes with a specific CSS class.
+findByClass :: Text -> Forest RawToken -> [Tree RawToken]
+findByClass targetClass = concatMap go
   where
-    go node@(Node token children)
-        | hasTokenClass targetClass token = node : findByClass targetClass children
-        | otherwise                       = findByClass targetClass children
+    go node@(Node rt children)
+        | hasTokenClass targetClass rt = node : findByClass targetClass children
+        | otherwise                    = findByClass targetClass children
+
 
 -- | Find the first descendant node with a given CSS class.
-findFirstByClass :: Text -> Forest Token -> Maybe (Tree Token)
+findFirstByClass :: Text -> Forest RawToken -> Maybe (Tree RawToken)
 findFirstByClass targetClass = listToMaybe . findByClass targetClass
 
+
 -- | Find all descendant nodes with a specific HTML tag name.
-findByTag :: Text -> Forest Token -> [Tree Token]
-findByTag targetTag forest = concatMap go forest
+findByTag :: Text -> Forest RawToken -> [Tree RawToken]
+findByTag targetTag = concatMap go
   where
-    go node@(Node token children)
-        | getTagName token == Just targetTag = node : findByTag targetTag children
-        | otherwise                          = findByTag targetTag children
+    go node@(Node rt children)
+        | getTagName rt == Just targetTag = node : findByTag targetTag children
+        | otherwise                       = findByTag targetTag children
+
 
 -- | Get only the element children of a node, ignoring text/comments.
-getChildElements :: Tree Token -> [Tree Token]
+getChildElements :: Tree RawToken -> [ Tree RawToken ]
 getChildElements (Node _ children) = filter isElement children
   where
     isElement (Node token _) = case token of
-        TagOpen{}      -> True
-        TagSelfClose{} -> True
-        _              -> False
+        RawToken _ (TagOpen {})      -> True
+        RawToken _ (TagSelfClose {}) -> True
+        _                            -> False
+
 
 {-
  - INSPECTION (Operating on 'Token')
@@ -56,59 +69,74 @@ getChildElements (Node _ children) = filter isElement children
 
 -- | Safely extract an attribute value from a Token.
 -- | Safely extract an attribute value from a Token.
-getAttribute :: Text -> Token -> Maybe Text
-getAttribute attrName token = case token of
+getAttribute :: Text -> RawToken -> Maybe Text
+getAttribute attrName (RawToken _ tok) = case tok of
     TagOpen _ attrs      -> findAttr attrs
     TagSelfClose _ attrs -> findAttr attrs
     _                    -> Nothing
   where
-    -- Recursively search the list of custom 'Attr' types
     findAttr [] = Nothing
     findAttr (Attr key value : rest)
         | key == attrName = Just value
         | otherwise       = findAttr rest
 
--- | Check if a Token has a specific CSS class.
-hasTokenClass :: Text -> Token -> Bool
-hasTokenClass targetClass token = 
-    maybe False (elem targetClass . T.words) (getAttribute "class" token)
 
--- | Get the tag name of a Token.
-getTagName :: Token -> Maybe Text
-getTagName token = case token of
+-- | Check if a Token has a specific CSS class.
+hasTokenClass :: Text -> RawToken -> Bool
+hasTokenClass targetClass rt = 
+    maybe False (elem targetClass . T.words) (getAttribute "class" rt)
+
+
+-- | Get the tag name.
+getTagName :: RawToken -> Maybe Text
+getTagName (RawToken _ tok) = case tok of
     TagOpen name _      -> Just name
     TagSelfClose name _ -> Just name
     _                   -> Nothing
+
 
 {-
  - TEXT EXTRACTION
 -}
 
--- | Recursively extract and concatenate all text content from a Forest.
-extractText :: Forest Token -> Text
-extractText forest = T.concat $ map go forest
+-- | Flatten a Forest of RawTokens back into a linear list.
+-- Synthesizes closing tags for non-void elements since they were consumed by the tree builder.
+rawTokensFromForest :: Forest RawToken -> [RawToken]
+rawTokensFromForest = mconcat . fmap rawTokensFromTree
+
+
+rawTokensFromTree :: Tree RawToken -> [RawToken]
+rawTokensFromTree (Node rt children) =
+    case tokenVal rt of
+        TagOpen n _ | n `notElem` nonClosing ->
+            [rt] <> rawTokensFromForest children <> [syntheticClose n]
+        _ ->
+            [rt] <> rawTokensFromForest children
   where
-    go (Node token children) = case token of
+    -- We synthesize the closing tag text. It won't preserve weird whitespace 
+    -- like `</ div >`, but that is exceptionally rare and perfectly valid HTML.
+    syntheticClose n = RawToken ("</" <> n <> ">") (TagClose n)
+
+
+-- | Get the exact, verbatim inner HTML of a node.
+-- No re-rendering, no escaping, no entity normalization.
+innerHtml :: Tree RawToken -> Text
+innerHtml = outerHtml . subForest
+
+
+outerHtml :: Forest RawToken -> Text
+outerHtml = T.concat . map rawSource . rawTokensFromForest
+
+
+-- | Recursively extract and concatenate all text content from a Forest.
+extractText :: Forest RawToken -> Text
+extractText = T.concat . map go
+  where
+    go (Node (RawToken _ tok) children) = case tok of
         ContentText t -> t
         ContentChar c -> T.singleton c
         _             -> extractText children
 
--- | Extract text, but skip any subtrees rooted at a node with the excluded class.
-extractTextExcluding :: Text -> Forest Token -> Text
-extractTextExcluding excludedClass forest = T.concat $ mapMaybe go forest
-  where
-    go node@(Node token children)
-        | hasTokenClass excludedClass token = Nothing -- Skip this entire subtree
-        | isText token                      = Just (getText token)
-        | otherwise                         = Just (extractTextExcluding excludedClass children)
-    
-    isText ContentText{} = True
-    isText ContentChar{} = True
-    isText _             = False
-    
-    getText (ContentText t) = t
-    getText (ContentChar c) = T.singleton c
-    getText _               = T.empty
 
 {-
  - Timestamp helpers
@@ -135,6 +163,7 @@ sameUpToMinute left right =
         let seconds = floor (utctDayTime timestamp) :: Integer
         in seconds `div` 60
 
+
 -- | Choose the most recent plausible year relative to a fallback "now" time.
 --
 -- This is used when there is no OP-image filename timestamp.
@@ -157,6 +186,7 @@ inferRelativeToNow now parseInYear =
         filter plausible $
         mapMaybe parseInYear candidateYears
 
+
 -- | Choose a plausible year relative to a precise filename timestamp.
 --
 -- The filename timestamp is the OP creation time, or at least a very good
@@ -178,6 +208,7 @@ inferRelativeToFile filenameTime parseInYear =
     listToMaybe $
         filter plausible $
         mapMaybe parseInYear candidateYears
+
 
 -- | If the candidate matches the reference timestamp up to the minute,
 -- return the reference timestamp instead.
@@ -347,3 +378,87 @@ parseFilenameTime source = do
                 fractionalPOSIX = fromInteger fractional / scalePOSIX
 
             pure $ secondsPOSIX + fractionalPOSIX
+
+
+-- | Parse a lazy list of RawTokens from strict Text.
+-- This uses attoparsec's `match` to capture the verbatim source slice.
+parseRawTokens :: Text -> [ RawToken ]
+parseRawTokens = unfoldr f
+  where
+    f :: Text -> Maybe (RawToken, Text)
+    f t | T.null t = Nothing
+        | otherwise = case A.parse (A.match token) t of
+            A.Done rest (raw, tok) -> Just (RawToken raw tok, rest)
+            A.Partial cont -> case cont mempty of
+                A.Done rest (raw, tok) -> Just (RawToken raw tok, rest)
+                _ -> Nothing
+            _ -> Nothing
+
+
+-- | Lenient PStack for RawTokens
+data RawPStack = RawPStack
+    { _rawToplevelSiblings :: Forest RawToken
+    , _rawParents          :: [(RawToken, Forest RawToken)]
+    } deriving (Show)
+
+
+-- | Construct a Forest from RawTokens, gracefully handling mismatched/unclosed tags.
+rawTokensToForest :: [RawToken] -> Either ParseTokenForestError (Forest RawToken)
+rawTokensToForest = f (RawPStack [] [])
+  where
+    f (RawPStack ss []) [] =
+        Right (reverse ss)
+
+    -- EOF: close any remaining open tags.
+    f (RawPStack ss ((p, ss') : ps)) [] =
+        f (RawPStack (Node p (reverse ss) : ss') ps) []
+
+    f pstack (t : ts) =
+        case tokenVal t of
+            TagOpen n _ ->
+                if n `elem` nonClosing
+                    then f (pushFlatSibling t pstack) ts
+                    else f (pushParent t pstack) ts
+
+            TagSelfClose {} ->
+                f (pushFlatSibling t pstack) ts
+
+            TagClose n ->
+                (`f` ts) =<< popParent n pstack
+
+            _ ->
+                f (pushFlatSibling t pstack) ts
+
+
+pushParent :: RawToken -> RawPStack -> RawPStack
+pushParent t (RawPStack ss ps) = RawPStack [] ((t, ss) : ps)
+
+
+pushFlatSibling :: RawToken -> RawPStack -> RawPStack
+pushFlatSibling t (RawPStack ss ps) = RawPStack (Node t [] : ss) ps
+
+
+popParent :: TagName -> RawPStack -> Either ParseTokenForestError RawPStack
+popParent n pstack@(RawPStack _ ps)
+    | not (any isTarget ps) = Right pstack
+    | otherwise = go pstack
+  where
+    isTarget (RawToken _ (TagOpen n' _), _) =
+        n == n'
+
+    isTarget _ =
+        False
+
+    go (RawPStack ss ((p@(RawToken _ (TagOpen n' _)), ss') : rest))
+        | n == n' =
+            Right $ RawPStack (Node p (reverse ss) : ss') rest
+
+        | otherwise =
+            go (RawPStack (Node p (reverse ss) : ss') rest)
+
+    go _ =
+        error "popParent: impossible"
+
+
+utcTimeToEpochSeconds :: UTCTime -> Int
+utcTimeToEpochSeconds = truncate . utcTimeToPOSIXSeconds
