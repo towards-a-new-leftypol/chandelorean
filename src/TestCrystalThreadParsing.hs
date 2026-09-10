@@ -20,30 +20,30 @@ type Cyclical = Bool
 
 
 data Thread = Thread
-  { no            :: Int64
-  , sub           :: Maybe Text
-  , com           :: Maybe Text
-  , name          :: Maybe Text
-  , capcode       :: Maybe Text
-  , time          :: Int
-  , omitted_posts :: Maybe Int
-  , omitted_images:: Maybe Int
-  , replies       :: Maybe Int
-  , images        :: Maybe Int
-  , sticky        :: Maybe Int
-  , locked        :: Maybe Int
-  , cyclical      :: Maybe Cyclical
-  , last_modified :: Int
-  -- , board         :: Text
-  , files         :: Maybe [ File ]
-  , resto         :: Int
-  , unique_ips    :: Maybe Int
+  { no             :: Int64
+  , sub            :: Maybe Text
+  , com            :: Maybe Text
+  , name           :: Maybe Text
+  , capcode        :: Maybe Text
+  , time           :: Int
+  , omitted_posts  :: Maybe Int
+  , omitted_images :: Maybe Int
+  , replies        :: Maybe Int
+  , images         :: Maybe Int
+  , sticky         :: Maybe Int
+  , locked         :: Maybe Int
+  , cyclical       :: Maybe Cyclical
+  , last_modified  :: Int
+  -- , board          :: Text
+  , files          :: Maybe [ File ]
+  , resto          :: Int
+  , unique_ips     :: Maybe Int
   } deriving Show
 
 
 processCatalogPage :: Text -> IO ()
-processCatalogPage htmltxt =
-    case tokensToForest $ canonicalizeTokens $ parseTokens htmltxt of
+processCatalogPage htmlText =
+    case rawTokensToForest $ parseRawTokens htmlText of
         Left err -> error $ show err
         Right forest -> do
             now <- getCurrentTime
@@ -51,14 +51,14 @@ processCatalogPage htmltxt =
             mapM_ print threads
 
 
-parseThreads :: UTCTime -> Forest Token -> [ Thread ]
+parseThreads :: UTCTime -> Forest RawToken -> [ Thread ]
 parseThreads now forest = map ((parseThread now) . (: [])) elemThreadsList
     where
         elemThreadsList = getChildElements $ head $ findByTag "ul" forest
 
 
 
-parseThread :: UTCTime -> Forest Token -> Thread
+parseThread :: UTCTime -> Forest RawToken -> Thread
 parseThread now elemThread =
     -- putStrLn $ "boardThreadId: " <> show boardThreadId
     -- print mFileEpoch
@@ -117,10 +117,6 @@ parseThread now elemThread =
                 case mFileTime of
                     Nothing -> lastModified -- OP doesn't have an image with the timestamp filename, we have to use what's in the title attribute and wrongly assume it's not the bump time but rather the creation time. However this is only the creation time for the thread table, the real creation time will be in the opening post in the posts table
                     Just  t -> t
-
-
-utcTimeToEpochSeconds :: UTCTime -> Int
-utcTimeToEpochSeconds = truncate . utcTimeToPOSIXSeconds
 
 
 treeHead :: Tree a -> a
