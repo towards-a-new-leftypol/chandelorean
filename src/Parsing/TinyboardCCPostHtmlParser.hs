@@ -1,24 +1,25 @@
 {-# LANGUAGE OverloadedStrings #-}
 
+module Parsing.TinyboardCCPostHtmlParser
+  ( processThreadPage )
+  where
+
 import Prelude hiding (id)
 import Data.Text (Text)
 import qualified Data.Text as T
-import qualified Data.Text.IO as Txt
-import Text.HTML.Parser
-import Text.HTML.Tree
 import Data.Tree (Forest, Tree, subForest, rootLabel)
 import Data.Int (Int64)
 import Data.Maybe (fromJust, fromMaybe, listToMaybe, mapMaybe)
 import Data.Char (isDigit)
 import Data.Time (UTCTime, parseTimeM, defaultTimeLocale)
-import Data.Time.Clock.POSIX (utcTimeToPOSIXSeconds)
 import Text.Read (readMaybe)
 import Control.Monad (guard)
 import Network.Mime (defaultMimeLookup)
 import Data.Text.Encoding (decodeUtf8)
 
 import Parsing.HtmlParsingUtils
-import Network.Api.JSONParsing as J
+import Network.Api.JSONCommonTypes as JF
+import Network.Api.JSONPost as J
 
 -- ==============================================================================
 -- HELPERS
@@ -71,7 +72,7 @@ parseFileTitle title = do
     return (name, fsize, w, h)
 
 -- | Extracts a File record from a list of sibling/child nodes containing fileinfo and img tags.
-extractFile :: [Tree RawToken] -> Maybe File
+extractFile :: [Tree RawToken] -> Maybe JF.File
 extractFile trees = do
     fileInfoTree <- listToMaybe $ filter
         ( \t ->
@@ -98,18 +99,18 @@ extractFile trees = do
         -- Use mime-types to lookup the mimetype based on the parsed filename extension
         mimeType = decodeUtf8 $ defaultMimeLookup parsedName
         
-    return File
-        { id = fileId
-        , mime = Just mimeType
-        , ext = ext
-        , h = Just h
-        , w = Just w
-        , fsize = fsize
-        , filename = parsedName
-        , spoiler = Just isSpoiler
-        , md5 = ""
-        , file_path = href
-        , thumb_path = thumbSrc
+    return JF.File
+        { JF.id = fileId
+        , JF.mime = Just mimeType
+        , JF.ext = ext
+        , JF.h = Just h
+        , JF.w = Just w
+        , JF.fsize = fsize
+        , JF.filename = parsedName
+        , JF.spoiler = Just isSpoiler
+        , JF.md5 = ""
+        , JF.file_path = href
+        , JF.thumb_path = thumbSrc
         }
 
 -- | Extracts an embed URL/ID from a list of sibling/child nodes containing a video-container.
@@ -136,7 +137,7 @@ isReplyDiv t = getTagName u == Just "div" && hasTokenClass "reply" u
 -- CORE PARSING LOGIC
 -- ==============================================================================
 
-parseThreadContainer :: Tree RawToken -> [Post]
+parseThreadContainer :: Tree RawToken -> [ Post ]
 parseThreadContainer threadTree =
     let children = getChildElements threadTree
         -- The OP's file/embed nodes appear as preceding siblings to the div.post.op
@@ -195,31 +196,31 @@ parsePost postTree mbOpFiles mbOpEmbed isOp =
                 then mbOpEmbed
                 else extractEmbed (subForest postTree)
                 
-    in Post
-        { no = no
-        , com = com
-        , name = name
-        , sub = sub
-        , email = Nothing
-        , time = timeEpoch
-        , omitted_posts = Nothing
-        , omitted_images = Nothing
-        , sticky = Nothing
-        , locked = Nothing
-        , cyclical = Nothing
-        , last_modified = timeEpoch
-        , embed = embed
-        , files = files
-        , resto = 0
-        , unique_ips = Nothing
-        , filename_ = Nothing
-        , h_ = Nothing
-        , w_ = Nothing
-        , ext_ = Nothing
-        , tim_ = Nothing
-        , fsize_ = Nothing
-        , spoiler_ = Nothing
-        , extra_files_ = Nothing
+    in J.Post
+        { J.no = no
+        , J.com = com
+        , J.name = name
+        , J.sub = sub
+        , J.email = Nothing
+        , J.time = timeEpoch
+        , J.omitted_posts = Nothing
+        , J.omitted_images = Nothing
+        , J.sticky = Nothing
+        , J.locked = Nothing
+        , J.cyclical = Nothing
+        , J.last_modified = timeEpoch
+        , J.embed = embed
+        , J.files = files
+        , J.resto = 0
+        , J.unique_ips = Nothing
+        , J.filename = Nothing
+        , J.h = Nothing
+        , J.w = Nothing
+        , J.ext = Nothing
+        , J.tim = Nothing
+        , J.fsize = Nothing
+        , J.spoiler = Nothing
+        , J.extra_files = Nothing
         }
 
 findThreadContainer :: Forest RawToken -> Maybe (Tree RawToken)
@@ -227,23 +228,14 @@ findThreadContainer forest = listToMaybe $ filter isThreadContainer (findByTag "
   where
     isThreadContainer tree = maybe False (T.isPrefixOf "thread_") (getAttribute "id" (rootLabel tree))
 
-processThreadPage :: Text -> IO ()
+processThreadPage :: Text -> [ Post ]
 processThreadPage htmlText =
     case rawTokensToForest $ parseRawTokens htmlText of
         Left err -> error $ show err
-        Right forest -> do
-            let posts = parsePosts forest
-            mapM_ print posts
+        Right forest -> parsePosts forest
 
-parsePosts :: Forest RawToken -> [Post]
+parsePosts :: Forest RawToken -> [ Post ]
 parsePosts pageForest =
     case findThreadContainer pageForest of
         Nothing -> []
         Just threadTree -> parseThreadContainer threadTree
-
-main :: IO ()
-main = do
-    putStrLn "Hello World"
-    -- txt <- Txt.readFile "/home/phil/Downloads/_b_ - Lolcow.Farm Hate Thread #12_ Eternity Of Insanity Edition.html"
-    txt <- Txt.readFile "/home/phil/Downloads/_media_ - Electronic Music Thread..._.html"
-    processThreadPage txt

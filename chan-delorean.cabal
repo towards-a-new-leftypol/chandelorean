@@ -92,13 +92,16 @@ executable chan-delorean-consoomer
                       Lib2
                       ClientAPI
                       Clients.LainJSONClient
-                      Clients.TinyboardHTML
+                      Clients.TinyboardCCHTML
                       Common.Network.BoardType
                       Common.Network.PostType
                       Common.Network.SiteType
                       Common.Network.ThreadType
                       Network.SpamNoticer
                       CliSettings
+                      Parsing.HtmlParsingUtils
+                      Parsing.TinyboardCCThreadHtmlParser
+                      Parsing.TinyboardCCPostHtmlParser
 
 
     -- LANGUAGE extensions used by modules in this package.
@@ -128,7 +131,9 @@ executable chan-delorean-consoomer
                       random,
                       transformers,
                       vector,
-                      unliftio
+                      unliftio,
+                      attoparsec,
+                      html-parse
 
     -- Directories containing source files.
     hs-source-dirs:   src
@@ -165,7 +170,7 @@ executable download-missing-attachments
                       BoardQueueElem
                       ClientAPI
                       Clients.LainJSONClient
-                      Clients.TinyboardHTML
+                      Clients.TinyboardCCHTML
                       Data.WordUtil
                       Hash
                       Lib
@@ -177,6 +182,9 @@ executable download-missing-attachments
                       Network.SpamNoticer
                       PriorityQueue
                       Sync
+                      Parsing.HtmlParsingUtils
+                      Parsing.TinyboardCCPostHtmlParser
+                      Parsing.TinyboardCCThreadHtmlParser
 
     -- LANGUAGE extensions used by modules in this package.
     -- other-extensions:
@@ -204,7 +212,9 @@ executable download-missing-attachments
                       directory,
                       transformers,
                       stm,
-                      unliftio
+                      unliftio,
+                      attoparsec,
+                      html-parse
 
     -- Directories containing source files.
     hs-source-dirs:   src

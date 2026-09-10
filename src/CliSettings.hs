@@ -10,7 +10,7 @@ import GHC.Generics
 import Data.Aeson (decode, FromJSON, ToJSON)
 import Data.Set (Set)
 
-data ClientApiType = LainJSON | TinyboardHTML
+data ClientApiType = LainJSON | TinyboardCCHTML
     deriving (Eq, Show, Generic)
 
 instance FromJSON ClientApiType

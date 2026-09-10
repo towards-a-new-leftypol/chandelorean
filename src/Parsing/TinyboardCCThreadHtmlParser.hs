@@ -1,31 +1,27 @@
 {-# LANGUAGE OverloadedStrings #-}
 
-module Parsing.VichanCCThreadHtmlParser where
+module Parsing.TinyboardCCThreadHtmlParser
+  ( processCatalogPage )
+  where
 
 import Data.Text (Text)
 import qualified Data.Text as Txt
-import qualified Data.Text.IO as Txt
 import qualified Data.Text.Read as Txt
 import Data.Tree (Forest, Tree, flatten)
-import Text.HTML.Parser
-import Text.HTML.Tree
-import Data.Maybe (fromJust, fromMaybe, maybe)
+import Data.Maybe (fromJust)
 import Data.Char (isDigit)
 import Data.Int (Int64)
-import Data.Time.Clock (getCurrentTime, UTCTime)
-import Data.Time.Clock.POSIX (posixSecondsToUTCTime, utcTimeToPOSIXSeconds)
+import Data.Time.Clock (UTCTime)
+import Data.Time.Clock.POSIX (posixSecondsToUTCTime)
 
 import Parsing.HtmlParsingUtils
 import Network.Api.JSONParsing as J
 
-processCatalogPage :: Text -> IO ()
-processCatalogPage htmlText =
+processCatalogPage :: UTCTime -> Text -> [ Thread ]
+processCatalogPage now htmlText =
     case rawTokensToForest $ parseRawTokens htmlText of
         Left err -> error $ show err
-        Right forest -> do
-            now <- getCurrentTime
-            let threads = parseThreads now forest
-            mapM_ print threads
+        Right forest -> parseThreads now forest
 
 
 parseThreads :: UTCTime -> Forest RawToken -> [ Thread ]
@@ -34,18 +30,8 @@ parseThreads now forest = map ((parseThread now) . (: [])) elemThreadsList
         elemThreadsList = getChildElements $ head $ findByTag "ul" forest
 
 
-
 parseThread :: UTCTime -> Forest RawToken -> Thread
 parseThread now elemThread =
-    -- putStrLn $ "boardThreadId: " <> show boardThreadId
-    -- print mFileEpoch
-    -- print $ fromMaybe now mFileTime
-    -- print elemOpImg
-
-    -- putStrLn $ "last_modified: " <> show lastModified
-    -- putStrLn $ "time: " <> show creationTime
-    -- putStrLn $ "replies: " <> show replyCount
-    -- putStrLn ""
     Thread
       { no            = boardThreadId
       , sub           = Nothing
@@ -109,11 +95,3 @@ boardThreadIdFromUrl = fst . fromRight . Txt.decimal . Txt.takeWhile isDigit .
 fromRight :: Either a b -> b
 fromRight (Left _) = error "Expected Right value, got Left"
 fromRight (Right x) = x
-
-
-main :: IO ()
-main = do
-    putStrLn "Hello World"
-    txt <- Txt.readFile "/home/phil/Downloads/https___crystal.cafe_b_catalog.html"
-    -- txt <- Txt.readFile "/home/phil/Downloads/cc_pretty.html"
-    processCatalogPage txt

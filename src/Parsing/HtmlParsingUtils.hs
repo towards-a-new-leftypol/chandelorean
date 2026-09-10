@@ -8,7 +8,6 @@ import Data.Tree
 import Data.Char (isDigit)
 import Data.Maybe (mapMaybe, listToMaybe)
 import Data.Time
-import Data.Time.Format
 import Data.Time.Clock.POSIX
 import Text.Read (readMaybe)
 import Control.Monad (guard)
@@ -57,7 +56,7 @@ findByTag targetTag = concatMap go
 getChildElements :: Tree RawToken -> [ Tree RawToken ]
 getChildElements (Node _ children) = filter isElement children
   where
-    isElement (Node token _) = case token of
+    isElement (Node t _) = case t of
         RawToken _ (TagOpen {})      -> True
         RawToken _ (TagSelfClose {}) -> True
         _                            -> False
