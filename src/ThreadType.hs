@@ -21,7 +21,7 @@ instance Eq Thread where
   x == y = tuple x == tuple y
 
     where
-        tuple x = (board_id x, board_thread_id x, creation_time x)
+        tuple i = (board_id i, board_thread_id i, creation_time i)
 
 instance Ord Thread where
   compare = comparing (\t -> (board_id t, board_thread_id t))
