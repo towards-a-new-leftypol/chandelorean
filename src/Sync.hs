@@ -5,7 +5,7 @@
 
 module Sync where
 
-import System.Exit (exitFailure)
+import System.Exit (exitFailure, exitSuccess)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 import Data.Maybe (mapMaybe, fromMaybe, fromJust)
@@ -17,13 +17,13 @@ import System.Random (StdGen, getStdGen)
 import Control.Monad.Trans.Except (runExceptT)
 import Control.Monad.IO.Class (liftIO)
 import UnliftIO.Async (pooledMapConcurrentlyN)
+import Data.Text (Text, pack, unpack)
 
 import qualified CliSettings as S
 import qualified Common.Server.JSONSettings as JS
 import qualified Network.DataClient as Client
 import qualified Lib
 import qualified Network.GetLatestPostsPerBoardResponse as GLPPBR
-import qualified SitesType as Site
 import qualified BoardsType as Board
 import qualified ThreadType as Thread
 import qualified BoardQueueElem as QE
@@ -37,10 +37,11 @@ import qualified ClientAPI as API
 import Clients.LainJSONClient (lainJSONClient)
 import Clients.TinyboardCCHTML (tinyboardHTMLClient)
 import qualified Network.SpamNoticer as SN
+import qualified Common.Network.SiteType as NSite
 
 println :: String -> Lib2.IOe ()
-println = const $ return ()
--- println = liftIO . putStrLn
+-- println = const $ return ()
+println = liftIO . putStrLn
 
 
 consumerSettingsToPartialJSONSettings :: S.ConsumerJSONSettings -> JS.JSONSettings
@@ -55,10 +56,10 @@ consumerSettingsToPartialJSONSettings S.ConsumerJSONSettings {..} =
         }
 
 
-mkJsonSettings :: S.ConsumerJSONSettings -> Site.Site -> JS.JSONSettings
+mkJsonSettings :: S.ConsumerJSONSettings -> NSite.Site -> JS.JSONSettings
 mkJsonSettings cs site = (consumerSettingsToPartialJSONSettings cs)
-    { JS.site_name = Site.name site
-    , JS.site_url = Site.url site
+    { JS.site_name = unpack $ NSite.name site
+    , JS.site_url = unpack $ NSite.url site
     }
 
 
@@ -87,7 +88,8 @@ threadMain csmr_settings boardElem = do
             changedApiThreads
 
         last_modified <- if null changedApiThreads
-        then
+        then do
+            println $ "changedApiThreads is null returning last modified: " ++ show board_last_modified
             return board_last_modified
         else do
             println "HELLO A"
@@ -175,7 +177,6 @@ threadMain csmr_settings boardElem = do
                     [ d
                     | (t, xs) <- changedThreadPosts
                     , (jp, p) <- xs
-                    -- , Set.notMember (trace "RIGHT HERE OFFICER" (Client.idFromPost p)) existingBoardPostIdSet
                     , not (postAlreadyExists t p)
                     , d <- Lib.parseAttachments (JS.site_url settings) (site, board, t, jp, p)
                     ] :: [ Lib.Details ]
@@ -203,7 +204,7 @@ threadMain csmr_settings boardElem = do
                     let skipCheck =
                             maybe
                                 False
-                                (Set.member (Site.name site))
+                                (Set.member (unpack $ NSite.name site))
                                 (S.trusted_sites noticerSettings)
                     in if skipCheck then return postsPerThread else do
 
@@ -420,21 +421,25 @@ threadMain csmr_settings boardElem = do
             println "HELLO L"
 
             if null missingPostsDetails
-            then
+            then do
                 -- this will be hit if we just start the scraper and the last
                 -- post on this board was saged, the thread_bump_time_slices table
                 -- won't have the saged post record, and the process will try
                 -- to query those threads
-                return $ foldl' max board_last_modified
-                    [ Lib.epochToUTCTime $ JSONThread.last_modified t
-                    | t <- changedApiThreads ]
-            else
+                let result = foldl' max board_last_modified
+                      [ Lib.epochToUTCTime $ JSONThread.last_modified t
+                      | t <- changedApiThreads ]
+                println $ "missingPostsDetails is null. result last board_last_modified is " ++ show result
+                return result
+            else do
                 -- result is the most recent timestamp of all the posts we just saved
-                return $ foldr max board_last_modified $ map Post.creation_time
-                    [ post
-                    | (_, xs) <- postsPerThread
-                    , (post, _) <- xs
-                    ]
+                let result = foldr max board_last_modified $ map Post.creation_time
+                      [ post
+                      | (_, xs) <- postsPerThread
+                      , (post, _) <- xs
+                      ]
+                println $ "missingPostsDetails is not null. result last board_last_modified is " ++ show result
+                return result
 
         Lib2.removeDeletedThreads settings boardElem allCatalogApiThreads
         return (last_modified, Just allCatalogApiThreads)
@@ -502,6 +507,10 @@ syncWebsites csmr_settings = do
 
     sitesResult <- Client.getAllSites json_settings
 
+    print sitesResult
+
+    exitSuccess
+
     sites <- mapM (flip Lib.ensureSiteExists sitesResult . Lib.toClientSettings csmr_settings) (S.websites csmr_settings)
 
     -- initial query to populate boards
@@ -538,8 +547,8 @@ syncWebsites csmr_settings = do
                 )
                 latest_posts_per_board
 
-    let site_name_to_site :: Map.Map String Site.Site =
-            Map.fromList $ map (\s -> (Site.name s, s)) sites
+    let site_name_to_site :: Map.Map Text NSite.Site =
+            Map.fromList $ map (\s -> (NSite.name s, s)) sites
 
     let site_id_board_id_to_glppbr = Map.fromList $
             map
@@ -548,16 +557,15 @@ syncWebsites csmr_settings = do
 
     site_and_board_and_api_list_ <- mapM
         (\site_settings -> do
-            let site_name = S.name site_settings
+            let site_name = pack $ S.name site_settings
 
-            putStrLn $ "site_name_to_site map: " ++ (show site_name_to_site) ++ " key: " ++ site_name
             putStrLn $ "member? " ++ show (Map.member site_name site_name_to_site)
 
             let site = (Map.!) site_name_to_site site_name
 
             putStrLn $ "Site OK: " ++ show site
 
-            let s_id = Site.site_id site
+            let s_id = NSite.site_id site
 
             let existing_board_info =
                     mapMaybe

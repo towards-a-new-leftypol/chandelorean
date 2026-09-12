@@ -28,9 +28,9 @@ import Control.Monad (when, unless, forM_)
 import qualified Data.ByteString.Lazy as LBS
 import System.Directory (removeFile)
 import System.IO.Error (catchIOError, isDoesNotExistError)
+import qualified Data.Text as T
 
 import qualified Network.DataClient as Client
-import qualified SitesType  as Sites
 import qualified BoardsType as Boards
 import Common.Network.HttpClient (HttpError)
 import qualified Network.Api.JSONParsing as JSON
@@ -41,6 +41,7 @@ import Common.Server.JSONSettings (JSONSettings)
 import qualified Common.AttachmentType as At
 import qualified Lib
 import qualified BoardQueueElem as QE
+import qualified Common.Network.SiteType as Site
 
 
 data ProgramException = HttpException HttpError
@@ -56,29 +57,29 @@ liftHttpIO = ExceptT . fmap (first HttpException)
 
 httpSiteJSONGetRequest
     :: (FromJSON a)
-    => Sites.Site
+    => Site.Site
     -> String
     -> IOe a
 httpSiteJSONGetRequest site path = liftHttpIO $
-    Client.getJSON $ Sites.url site </> path
+    Client.getJSON $ T.unpack (Site.url site) </> path
 
 
-httpGetCatalogJSON :: Sites.Site -> Boards.Board -> IOe [ JSON.Catalog ]
+httpGetCatalogJSON :: Site.Site -> Boards.Board -> IOe [ JSON.Catalog ]
 httpGetCatalogJSON site board = httpSiteJSONGetRequest site path
     where
         path = Boards.pathpart board </> "catalog.json"
 
 
 httpGet
-  :: Sites.Site
+  :: Site.Site
   -> String
   -> IOe LBS.ByteString
 httpGet site path = liftHttpIO $
-    Client.get_ (Sites.url site </> path) []
+    Client.get_ (T.unpack (Site.url site) </> path) []
 
 
 httpGetPostsJSON
-  :: Sites.Site
+  :: Site.Site
   -> Boards.Board
   -> Thread.Thread
   -> IOe (Thread.Thread, [ JSONPost.Post ])

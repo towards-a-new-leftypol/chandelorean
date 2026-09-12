@@ -6,7 +6,6 @@ module Network.DataClient
   ( HttpError(..)
   , PostId (..)
   , get
-  , getSiteBoards
   , getAllSites
   , postSite
   , post
@@ -78,13 +77,6 @@ idFromPost p = PostId
     }
 
 
-getSiteBoards :: T.JSONSettings -> Int -> IO (Either HttpError [ Boards.Board ])
-getSiteBoards settings site_id_ = eitherDecodeResponse <$>
-    get settings path
-    where
-        path = "/boards?site_id=eq." ++ show site_id_
-
-
 postSite :: T.JSONSettings -> IO (Either HttpError [ Sites.Site ])
 postSite settings = eitherDecodeResponse <$>
     post settings "/sites" payload defaultOptions { returnRepresentation = True }
@@ -134,9 +126,10 @@ postThreads settings threads = eitherDecodeResponse <$>
             ]
 
 
-getAllSites :: T.JSONSettings -> IO (Either HttpError [ Sites.Site ])
-getAllSites settings = eitherDecodeResponse <$>
-    get settings "/sites"
+getAllSites :: T.JSONSettings -> IO (Either HttpError [ Site.Site ])
+getAllSites settings = do
+    response <- get settings "/sites?select=*,boards(*)"
+    return $ sitesFromSSites <$> eitherDecodeResponse response
 
 
 getThreads :: T.JSONSettings -> Int -> [ Int64 ] -> IO (Either HttpError [ Threads.Thread ])

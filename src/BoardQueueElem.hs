@@ -2,10 +2,10 @@ module BoardQueueElem where
 
 import Data.Time.Clock (UTCTime)
 
-import SitesType (Site)
 import BoardsType (Board)
 import Network.Api.JSONParsing (Thread)
 import CliSettings (ClientApiType)
+import Common.Network.SiteType (Site)
 
 data BoardQueueElem = BoardQueueElem
     { site :: Site

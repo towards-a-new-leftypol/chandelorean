@@ -65,6 +65,7 @@ import qualified Data.WordUtil as Words
 import qualified Common.Server.JSONSettings as J
 import Common.Network.HttpClient (HttpError)
 import qualified CliSettings as CS
+import qualified Common.Network.SiteType as Site
 
 newtype SettingsCLI = SettingsCLI
   { jsonFile :: FilePath
@@ -77,11 +78,20 @@ moveFile src dst =
     B.readFile src >>= B.writeFile dst >> removeFile src
 
 
-ensureSiteExists :: J.JSONSettings -> Either HttpError [ Sites.Site ] -> IO Sites.Site
+siteFromSite :: Sites.Site -> Site.Site
+siteFromSite s = Site.Site
+    { Site.site_id = Sites.site_id s
+    , Site.name = T.pack $ Sites.name s
+    , Site.url = T.pack $ Sites.url s
+    , Site.boards = []
+    }
+
+
+ensureSiteExists :: J.JSONSettings -> Either HttpError [ Site.Site ] -> IO Site.Site
 ensureSiteExists settings sitesResult = do
     case sitesResult of
         Right siteList ->
-            case find (\site -> Sites.name site == J.site_name settings) siteList of
+            case find (\site -> unpack (Site.name site) == J.site_name settings) siteList of
             Just site -> do
                 putStrLn $ J.site_name settings ++ " already exists!"
                 return site
@@ -92,7 +102,7 @@ ensureSiteExists settings sitesResult = do
                 case postResult of
                     Right (site:_) -> do
                         putStrLn $ "Successfully created " ++ J.site_name settings ++ ". " ++ show site
-                        return site
+                        return $ siteFromSite site
                     Right [] -> do
                         putStrLn "Did not get new site id back from postgrest"
                         exitFailure
@@ -223,13 +233,13 @@ phash_mimetypes = Set.fromList
 
 makeThreadAttachmentFsPath
     :: J.JSONSettings
-    -> Sites.Site
+    -> Site.Site
     -> Boards.Board
     -> Int64
     -> FilePath
 makeThreadAttachmentFsPath settings site board thread_id
     = (J.media_root_path settings)
-    </> Sites.name site
+    </> unpack (Site.name site)
     </> Boards.pathpart board
     </> (show thread_id)
 
@@ -268,12 +278,12 @@ copyOrMoveFiles settings copyOrMove (site, board, thread, _, Just (path, attachm
 copyOrMoveFiles _ _ _ = return ()
 
 
-type Details = (Sites.Site, Boards.Board, Threads.Thread, Posts.Post, Maybe (At.Paths, At.Attachment))
+type Details = (Site.Site, Boards.Board, Threads.Thread, Posts.Post, Maybe (At.Paths, At.Attachment))
 
 
 parseAttachments
     :: String
-    -> (Sites.Site, Boards.Board, Threads.Thread, JSONPost.Post, Posts.Post)
+    -> (Site.Site, Boards.Board, Threads.Thread, JSONPost.Post, Posts.Post)
     -> [ Details ]
 parseAttachments path_prefix (site, board, thread, p, q) = filter notDeleted $
     case JSONPost.files p of

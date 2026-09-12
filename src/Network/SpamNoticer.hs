@@ -23,13 +23,13 @@ import Network.HTTP.Client.MultipartFormData
     )
 import Network.DataClient (eitherDecodeResponse)
 import qualified Lib
-import qualified SitesType  as Sites
 import qualified BoardsType as Boards
 import qualified ThreadType as Threads
 import qualified Common.PostsType as Posts
 import qualified Common.AttachmentType as At
 import Hash (computeMD5)
 import CliSettings (SpamNoticerSettings (..))
+import qualified Common.Network.SiteType as Site
 
 data SpamNoticerAttachmentMetadata =
     SpamNoticerAttachmentMetadata
@@ -44,7 +44,7 @@ data SpamNoticerRequestInfo =
         { attachments :: [ SpamNoticerAttachmentMetadata ]
         , body  :: Maybe Text
         , time_stamp :: Integer
-        , website_name :: String
+        , website_name :: Text
         , board_name :: String
         , thread_id :: Int64
         , skip_recent_record :: Bool
@@ -85,7 +85,7 @@ askNoticer settings requestInfo attachmentPaths = do
 
 
 noticerReqInfoFromDetails
-    :: Sites.Site
+    :: Site.Site
     -> Boards.Board
     -> Threads.Thread
     -> Posts.Post
@@ -98,7 +98,7 @@ noticerReqInfoFromDetails site board thread post attDetails = do
         { attachments = zipWith ($) (attDetails >>= attachmentMetaFromDetails) hashes
         , body = Posts.body post
         , time_stamp = round $ utcTimeToPOSIXSeconds $ Posts.creation_time post
-        , website_name = Sites.name site
+        , website_name = Site.name site
         , board_name = Boards.pathpart board
         , thread_id = Threads.board_thread_id thread
         , skip_recent_record = True

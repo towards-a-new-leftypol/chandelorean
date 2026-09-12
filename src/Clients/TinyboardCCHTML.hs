@@ -12,7 +12,6 @@ import Data.Int (Int64)
 import ClientAPI
 import qualified BoardQueueElem as QE
 import Lib2 (IOe, httpGet)
-import SitesType (Site)
 import qualified BoardsType as B
 import qualified Network.Api.JSONParsing as T
 import Network.Api.JSONPost (Post)
@@ -20,6 +19,7 @@ import Parsing.TinyboardCCPostHtmlParser
 import Parsing.TinyboardCCThreadHtmlParser
 import qualified Lib
 import qualified ThreadType as Thread
+import Common.Network.SiteType (Site)
 
 tinyboardHTMLClient :: ClientAPI
 tinyboardHTMLClient = ClientAPI
