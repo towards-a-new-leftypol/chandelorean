@@ -5,7 +5,7 @@ module Network.SpamNoticer where
 
 import GHC.Generics
 import Data.Aeson (ToJSON, FromJSON, Value, encode)
-import Data.Text (Text)
+import Data.Text (Text, unpack)
 import Data.Int (Int64)
 import Network.HTTP.Simple
     ( setRequestMethod
@@ -23,13 +23,13 @@ import Network.HTTP.Client.MultipartFormData
     )
 import Network.DataClient (eitherDecodeResponse)
 import qualified Lib
-import qualified BoardsType as Boards
 import qualified ThreadType as Threads
 import qualified Common.PostsType as Posts
 import qualified Common.AttachmentType as At
 import Hash (computeMD5)
 import CliSettings (SpamNoticerSettings (..))
 import qualified Common.Network.SiteType as Site
+import qualified Common.Network.BoardType as Board
 
 data SpamNoticerAttachmentMetadata =
     SpamNoticerAttachmentMetadata
@@ -86,7 +86,7 @@ askNoticer settings requestInfo attachmentPaths = do
 
 noticerReqInfoFromDetails
     :: Site.Site
-    -> Boards.Board
+    -> Board.Board
     -> Threads.Thread
     -> Posts.Post
     -> [ Lib.Details ]
@@ -99,7 +99,7 @@ noticerReqInfoFromDetails site board thread post attDetails = do
         , body = Posts.body post
         , time_stamp = round $ utcTimeToPOSIXSeconds $ Posts.creation_time post
         , website_name = Site.name site
-        , board_name = Boards.pathpart board
+        , board_name = unpack $ Board.pathpart board
         , thread_id = Threads.board_thread_id thread
         , skip_recent_record = True
         }

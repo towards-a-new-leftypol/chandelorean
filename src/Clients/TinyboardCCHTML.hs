@@ -8,11 +8,11 @@ import Data.Text.Lazy.Encoding (decodeUtf8)
 import Data.Text.Lazy (toStrict)
 import qualified Data.Map as Map
 import Data.Int (Int64)
+import Data.Text (unpack)
 
 import ClientAPI
 import qualified BoardQueueElem as QE
 import Lib2 (IOe, httpGet)
-import qualified BoardsType as B
 import qualified Network.Api.JSONParsing as T
 import Network.Api.JSONPost (Post)
 import Parsing.TinyboardCCPostHtmlParser
@@ -20,6 +20,7 @@ import Parsing.TinyboardCCThreadHtmlParser
 import qualified Lib
 import qualified ThreadType as Thread
 import Common.Network.SiteType (Site)
+import Common.Network.BoardType as B
 
 tinyboardHTMLClient :: ClientAPI
 tinyboardHTMLClient = ClientAPI
@@ -73,7 +74,7 @@ httpGetCatalogHTML site board = do
     return $ processCatalogPage now $ toStrict $ decodeUtf8 pageBS
 
     where
-        path = B.pathpart board </> "catalog"
+        path = (unpack $ B.pathpart board) </> "catalog"
 
 
 g
@@ -91,6 +92,6 @@ g boardQe = mapM getPosts
             return $ (thread, processThreadPage $ toStrict $ decodeUtf8 pageBS)
 
             where
-                path = B.pathpart board
+                path = (unpack $ B.pathpart board)
                     </> "res" </> (show $ Thread.board_thread_id thread)
                     <> ".html"

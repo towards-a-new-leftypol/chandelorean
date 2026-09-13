@@ -56,8 +56,8 @@ import qualified Network.Api.JSONPost as JSONPost
 import qualified Network.Api.JSONExtraFile as EF
 import qualified Network.DataClient as Client
 import qualified SitesType  as Sites
-import qualified BoardsType as Boards
 import qualified ThreadType as Threads
+import qualified BoardsType as Boards
 import qualified Common.AttachmentType as At
 import qualified Common.PostsType as Posts
 import qualified Hash
@@ -66,6 +66,7 @@ import qualified Common.Server.JSONSettings as J
 import Common.Network.HttpClient (HttpError)
 import qualified CliSettings as CS
 import qualified Common.Network.SiteType as Site
+import qualified Common.Network.BoardType as Board
 
 newtype SettingsCLI = SettingsCLI
   { jsonFile :: FilePath
@@ -79,12 +80,28 @@ moveFile src dst =
 
 
 siteFromSite :: Sites.Site -> Site.Site
-siteFromSite s = Site.Site
-    { Site.site_id = Sites.site_id s
-    , Site.name = T.pack $ Sites.name s
-    , Site.url = T.pack $ Sites.url s
-    , Site.boards = []
-    }
+siteFromSite Sites.Site { Sites.site_id, Sites.name, Sites.url } =
+    Site.Site
+        { Site.site_id = site_id
+        , Site.name = T.pack $ name
+        , Site.url = T.pack $ url
+        , Site.boards = []
+        }
+
+boardFromBoard :: Boards.Board -> Board.Board
+boardFromBoard
+    Boards.Board
+    { Boards.board_id
+    , Boards.name
+    , Boards.pathpart
+    , Boards.site_id
+    } = Board.Board
+        { Board.board_id = board_id
+        , Board.name = T.pack <$> name
+        , Board.pathpart = T.pack pathpart
+        , Board.site_id = site_id
+        , Board.threads = []
+        }
 
 
 ensureSiteExists :: J.JSONSettings -> Either HttpError [ Site.Site ] -> IO Site.Site
@@ -121,7 +138,7 @@ createArchivesForNewBoards
     -> Set String
     -> [ String ]
     -> Int
-    -> IO [ Boards.Board ]
+    -> IO [ Board.Board ]
 createArchivesForNewBoards settings dirsSet archived_boards siteid = do
     let archivedBoardsSet = Set.fromList archived_boards
 
@@ -143,7 +160,7 @@ createArchivesForNewBoards settings dirsSet archived_boards siteid = do
             Right boards -> do
                 putStrLn "Created the following boards:"
                 mapM_ (putStrLn . Boards.pathpart) boards
-                return boards
+                return $ map boardFromBoard boards
 
 
 apiThreadToArchiveThread :: Int -> Thread -> Threads.Thread
@@ -234,13 +251,13 @@ phash_mimetypes = Set.fromList
 makeThreadAttachmentFsPath
     :: J.JSONSettings
     -> Site.Site
-    -> Boards.Board
+    -> Board.Board
     -> Int64
     -> FilePath
 makeThreadAttachmentFsPath settings site board thread_id
     = (J.media_root_path settings)
     </> unpack (Site.name site)
-    </> Boards.pathpart board
+    </> unpack (Board.pathpart board)
     </> (show thread_id)
 
 
@@ -278,12 +295,12 @@ copyOrMoveFiles settings copyOrMove (site, board, thread, _, Just (path, attachm
 copyOrMoveFiles _ _ _ = return ()
 
 
-type Details = (Site.Site, Boards.Board, Threads.Thread, Posts.Post, Maybe (At.Paths, At.Attachment))
+type Details = (Site.Site, Board.Board, Threads.Thread, Posts.Post, Maybe (At.Paths, At.Attachment))
 
 
 parseAttachments
     :: String
-    -> (Site.Site, Boards.Board, Threads.Thread, JSONPost.Post, Posts.Post)
+    -> (Site.Site, Board.Board, Threads.Thread, JSONPost.Post, Posts.Post)
     -> [ Details ]
 parseAttachments path_prefix (site, board, thread, p, q) = filter notDeleted $
     case JSONPost.files p of
@@ -331,7 +348,7 @@ parseAttachments path_prefix (site, board, thread, p, q) = filter notDeleted $
         notDeleted _ = True
 
 
-parseLegacyPaths :: Boards.Board -> JSONPost.Post -> String -> Maybe (At.Paths, At.Attachment)
+parseLegacyPaths :: Board.Board -> JSONPost.Post -> String -> Maybe (At.Paths, At.Attachment)
 parseLegacyPaths board post path_prefix = do
     tim <- JSONPost.tim post
     ext <- JSONPost.ext post
@@ -339,7 +356,7 @@ parseLegacyPaths board post path_prefix = do
     size <- JSONPost.fsize post
 
     let
-        board_pathpart = T.pack $ Boards.pathpart board
+        board_pathpart = Board.pathpart board
         file_path = path_prefix </> (T.unpack $ board_pathpart <> "/src/" <> tim <> ext)
         thumb_extension = "png"
         thumbnail_path = path_prefix </> (T.unpack $ board_pathpart <> "/thumb/" <> tim <> "." <> thumb_extension)
@@ -368,7 +385,7 @@ parseLegacyPaths board post path_prefix = do
     return (p, attachment)
 
 
-parseExtraFiles :: Boards.Board -> Posts.Post -> JSONPost.Post -> String -> (Int, EF.ExtraFile) -> (At.Paths, At.Attachment)
+parseExtraFiles :: Board.Board -> Posts.Post -> JSONPost.Post -> String -> (Int, EF.ExtraFile) -> (At.Paths, At.Attachment)
 parseExtraFiles board post json_post path_prefix (idx, extra_file) =
     let
         tim      = EF.tim extra_file
@@ -376,7 +393,7 @@ parseExtraFiles board post json_post path_prefix (idx, extra_file) =
         filename = EF.filename extra_file
         size     = EF.fsize extra_file
 
-        board_pathpart = T.pack $ Boards.pathpart board
+        board_pathpart = Board.pathpart board
         file_path = path_prefix </> (T.unpack $ board_pathpart <> "/src/" <> tim <> ext)
         thumb_extension = "png"
         thumbnail_path = path_prefix </> (T.unpack $ board_pathpart <> "/thumb/" <> tim <> "." <> thumb_extension)

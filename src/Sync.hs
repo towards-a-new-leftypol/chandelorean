@@ -5,10 +5,10 @@
 
 module Sync where
 
-import System.Exit (exitFailure, exitSuccess)
+import System.Exit (exitFailure)
 import qualified Data.Map as Map
 import qualified Data.Set as Set
-import Data.Maybe (mapMaybe, fromMaybe, fromJust)
+import Data.Maybe (fromMaybe, fromJust)
 import Control.Concurrent.QSem
 import Control.Concurrent.STM.TVar
 import Control.Concurrent.STM (atomically, retry)
@@ -18,13 +18,13 @@ import Control.Monad.Trans.Except (runExceptT)
 import Control.Monad.IO.Class (liftIO)
 import UnliftIO.Async (pooledMapConcurrentlyN)
 import Data.Text (Text, pack, unpack)
+import Data.Time.Clock (UTCTime)
 
 import qualified CliSettings as S
 import qualified Common.Server.JSONSettings as JS
 import qualified Network.DataClient as Client
 import qualified Lib
 import qualified Network.GetLatestPostsPerBoardResponse as GLPPBR
-import qualified BoardsType as Board
 import qualified ThreadType as Thread
 import qualified BoardQueueElem as QE
 import qualified PriorityQueue as PQ
@@ -38,10 +38,11 @@ import Clients.LainJSONClient (lainJSONClient)
 import Clients.TinyboardCCHTML (tinyboardHTMLClient)
 import qualified Network.SpamNoticer as SN
 import qualified Common.Network.SiteType as NSite
+import qualified Common.Network.BoardType as NBoard
 
 println :: String -> Lib2.IOe ()
--- println = const $ return ()
-println = liftIO . putStrLn
+println = const $ return ()
+-- println = liftIO . putStrLn
 
 
 consumerSettingsToPartialJSONSettings :: S.ConsumerJSONSettings -> JS.JSONSettings
@@ -65,7 +66,7 @@ mkJsonSettings cs site = (consumerSettingsToPartialJSONSettings cs)
 
 threadMain :: S.ConsumerJSONSettings -> QE.BoardQueueElem -> IO QE.BoardQueueElem
 threadMain csmr_settings boardElem = do
-    putStrLn $ (Board.pathpart $ QE.board boardElem)
+    putStrLn $ (unpack $ NBoard.pathpart $ QE.board boardElem)
             ++ " last touched: " ++ show (QE.last_modified boardElem)
 
     thread_results <- runExceptT $ do
@@ -95,7 +96,7 @@ threadMain csmr_settings boardElem = do
             println "HELLO A"
 
             let changedThreads = map
-                        (Lib.apiThreadToArchiveThread $ Board.board_id board)
+                        (Lib.apiThreadToArchiveThread $ NBoard.board_id board)
                         changedApiThreads
 
             apiPosts :: [ (Thread.Thread, [ JSONPost.Post ]) ] <-
@@ -109,7 +110,7 @@ threadMain csmr_settings boardElem = do
             existingBoardPostIds <- Lib2.liftHttpIO $
                 Client.getPostIdsByBoardIds
                     settings
-                    (Board.board_id board)
+                    (NBoard.board_id board)
                     (map (Thread.board_thread_id . fst) apiPosts)
                     (apiPosts >>= (map JSONPost.no) . snd)
 
@@ -509,118 +510,95 @@ syncWebsites csmr_settings = do
 
     print sitesResult
 
-    exitSuccess
+    sites <- mapM
+        (\site_settings ->
+            Lib.ensureSiteExists
+                (Lib.toClientSettings csmr_settings site_settings)
+                sitesResult
+        )
+        (S.websites csmr_settings)
 
-    sites <- mapM (flip Lib.ensureSiteExists sitesResult . Lib.toClientSettings csmr_settings) (S.websites csmr_settings)
-
-    -- initial query to populate boards
+    -- Fetch latest posts per board.
+    -- This is now only used to determine last_modified.
     latest_posts_per_board_results <- Client.getLatestPostsPerBoard json_settings
 
     latest_posts_per_board <- case latest_posts_per_board_results of
         Left e -> do
             putStrLn $ "Error getting board information: " ++ show e
             exitFailure
-        Right latest_posts_per_board -> return latest_posts_per_board
+        Right xs -> return xs
 
     print latest_posts_per_board
 
-    let boards_per_site :: Map.Map Int [ String ] =
-            foldl
-                (\m b ->
-                    let key = GLPPBR.site_id b
-                        pathpart = GLPPBR.pathpart b
-                    in
-
-                    Map.insertWith (++) key [ pathpart ] m
-                )
-                Map.empty
-                latest_posts_per_board
-
-    let board_id_to_last_modified = Map.fromList $
-            map
-                ( \b ->
-                    ( GLPPBR.board_id b
-                    -- set t = 0 if there are no posts on the board yet
-                    -- this way it will check all of the threads
-                    , fromMaybe (Lib.epochToUTCTime 0) $ GLPPBR.creation_time b
+    let board_id_to_last_modified :: Map.Map Int UTCTime
+        board_id_to_last_modified =
+            Map.fromList $
+                map
+                    (\b ->
+                        ( GLPPBR.board_id b
+                        , fromMaybe (Lib.epochToUTCTime 0) $ GLPPBR.creation_time b
+                        )
                     )
-                )
-                latest_posts_per_board
+                    latest_posts_per_board
 
-    let site_name_to_site :: Map.Map Text NSite.Site =
-            Map.fromList $ map (\s -> (NSite.name s, s)) sites
+    queue_elems <- fmap concat $ mapM
+        (\(site_settings, site) -> do
+            let configured_board_pathparts = S.boards site_settings
 
-    let site_id_board_id_to_glppbr = Map.fromList $
-            map
-                (\b -> ((GLPPBR.site_id b, GLPPBR.pathpart b), b))
-                latest_posts_per_board
+            let configured_board_set :: Set.Set Text
+                configured_board_set =
+                    Set.fromList $ map pack configured_board_pathparts
 
-    site_and_board_and_api_list_ <- mapM
-        (\site_settings -> do
-            let site_name = pack $ S.name site_settings
+            let existing_site_boards = NSite.boards site
 
-            putStrLn $ "member? " ++ show (Map.member site_name site_name_to_site)
+            let existing_pathparts :: [String]
+                existing_pathparts =
+                    map (unpack . NBoard.pathpart) existing_site_boards
 
-            let site = (Map.!) site_name_to_site site_name
-
-            putStrLn $ "Site OK: " ++ show site
-
-            let s_id = NSite.site_id site
-
-            let existing_board_info =
-                    mapMaybe
-                        (\board_pathpart ->
-                            Map.lookup (s_id, board_pathpart) site_id_board_id_to_glppbr
-                        )
-                        (S.boards site_settings)
-
-            let existing_boards =
-                    map
-                        (\b -> Board.Board
-                            { Board.board_id = GLPPBR.board_id b
-                            , Board.name = Nothing
-                            , Board.pathpart = GLPPBR.pathpart b
-                            , Board.site_id = GLPPBR.site_id b
-                            }
-                        )
-                        existing_board_info
-
-            boards <- Lib.createArchivesForNewBoards
+            -- Create boards that are present in the user settings
+            -- but not yet present in the database.
+            new_boards <-
+                Lib.createArchivesForNewBoards
                     (Lib.toClientSettings csmr_settings site_settings)
-                    (Set.fromList $ S.boards site_settings)
-                    (Map.findWithDefault [] s_id boards_per_site)
-                    s_id
+                    (Set.fromList configured_board_pathparts)
+                    existing_pathparts
+                    (NSite.site_id site)
 
-            return (site, existing_boards ++ boards, S.client_api_type site_settings)
+            -- Merge old and newly created boards.
+            -- Map.fromList deduplicates by board_id.
+            let all_site_boards =
+                    Map.elems
+                        $ Map.fromList
+                        $ map
+                            (\b -> (NBoard.board_id b, b))
+                            (existing_site_boards ++ new_boards)
 
+            -- Optionally keep the Site value internally consistent.
+            let site' = site { NSite.boards = all_site_boards }
+
+            -- Only boards explicitly mentioned in the user settings are queued.
+            let relevant_boards =
+                    filter
+                        (\b -> Set.member (NBoard.pathpart b) configured_board_set)
+                        all_site_boards
+
+            return $
+                map
+                    (\b -> QE.BoardQueueElem
+                        { site = site'
+                        , board = b
+                        , last_modified =
+                            Map.findWithDefault
+                                (Lib.epochToUTCTime 0)
+                                (NBoard.board_id b)
+                                board_id_to_last_modified
+                        , last_catalog = Nothing
+                        , client_api_type = S.client_api_type site_settings
+                        }
+                    )
+                    relevant_boards
         )
-        (S.websites csmr_settings)
-
-    let site_and_board_and_api_list =
-            concatMap
-                ( \(a, bs, api) ->
-                    map
-                        ( \b -> (a, b, api)
-                        )
-                        bs
-                )
-                site_and_board_and_api_list_
-
-    let queue_elems =
-            map
-                (\(site, board, api) -> QE.BoardQueueElem
-                    { site = site
-                    , board = board
-                    , last_modified =
-                        Map.findWithDefault
-                            (Lib.epochToUTCTime 0)
-                            (Board.board_id board)
-                            board_id_to_last_modified
-                    , last_catalog = Nothing
-                    , client_api_type = api
-                    }
-                )
-                site_and_board_and_api_list
+        (zip (S.websites csmr_settings) sites)
 
     let pq :: PQ.Queue QE.BoardQueueElem = Set.fromList queue_elems
 

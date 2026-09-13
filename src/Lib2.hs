@@ -31,7 +31,6 @@ import System.IO.Error (catchIOError, isDoesNotExistError)
 import qualified Data.Text as T
 
 import qualified Network.DataClient as Client
-import qualified BoardsType as Boards
 import Common.Network.HttpClient (HttpError)
 import qualified Network.Api.JSONParsing as JSON
 import qualified Network.Api.JSONPost as JSONPost
@@ -42,6 +41,7 @@ import qualified Common.AttachmentType as At
 import qualified Lib
 import qualified BoardQueueElem as QE
 import qualified Common.Network.SiteType as Site
+import qualified Common.Network.BoardType as Board
 
 
 data ProgramException = HttpException HttpError
@@ -64,10 +64,10 @@ httpSiteJSONGetRequest site path = liftHttpIO $
     Client.getJSON $ T.unpack (Site.url site) </> path
 
 
-httpGetCatalogJSON :: Site.Site -> Boards.Board -> IOe [ JSON.Catalog ]
+httpGetCatalogJSON :: Site.Site -> Board.Board -> IOe [ JSON.Catalog ]
 httpGetCatalogJSON site board = httpSiteJSONGetRequest site path
     where
-        path = Boards.pathpart board </> "catalog.json"
+        path = (T.unpack $ Board.pathpart board) </> "catalog.json"
 
 
 httpGet
@@ -80,14 +80,14 @@ httpGet site path = liftHttpIO $
 
 httpGetPostsJSON
   :: Site.Site
-  -> Boards.Board
+  -> Board.Board
   -> Thread.Thread
   -> IOe (Thread.Thread, [ JSONPost.Post ])
 httpGetPostsJSON site board thread =
     (thread,) . JSONPost.posts <$> httpSiteJSONGetRequest site path
 
     where
-        path = Boards.pathpart board
+        path = (T.unpack $ Board.pathpart board)
             </> "res"
             </> (show (Thread.board_thread_id thread) ++ ".json")
 
@@ -145,7 +145,7 @@ removeDeletedThreads settings board_elem new_catalog = do
         _ <- liftHttpIO $
             Client.deleteThreads
                 settings
-                (Boards.board_id board)
+                (Board.board_id board)
                 to_del_board_thread_ids
 
         mapM_ (liftIO . rmThreadFiles) to_del_board_thread_ids
