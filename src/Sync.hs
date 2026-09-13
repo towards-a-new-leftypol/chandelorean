@@ -19,6 +19,7 @@ import Control.Monad.IO.Class (liftIO)
 import UnliftIO.Async (pooledMapConcurrentlyN)
 import Data.Text (Text, pack, unpack)
 import Data.Time.Clock (UTCTime)
+import System.IO (hPutStrLn, stderr)
 
 import qualified CliSettings as S
 import qualified Common.Server.JSONSettings as JS
@@ -235,14 +236,30 @@ threadMain csmr_settings boardElem = do
 
                     println $ "SpamNoticer should be given this many requests: " ++ (show $ length noticerArgs)
 
-                    noticerResponses <- Lib2.liftHttpIO $ sequence <$> pooledMapConcurrentlyN
+                    noticerEithers <- liftIO $ pooledMapConcurrentlyN
                         noticerJobs
                         (uncurry (SN.askNoticer noticerSettings))
                         noticerArgs
 
+                    noticerResponses <- liftIO $ mapM
+                        ( \er ->
+                            case er of
+                                Left e -> do
+                                    hPutStrLn stderr $ "SpamNoticer request failed! " ++ show e
+                                    return Nothing
+                                Right r ->
+                                    return (Just r)
+                        )
+                        noticerEithers
+
                     println $ "noticerResponses size: " ++ (show $ length noticerResponses)
 
-                    liftIO $ mapM_ SN.logNoticerNoticed noticerResponses
+                    println $ "SpamNoticer failures treated as clean: "
+                        ++ (show $ length [() | Nothing <- noticerResponses])
+
+                    liftIO $ mapM_
+                        (maybe (return ()) SN.logNoticerNoticed)
+                        noticerResponses
 
                     let detailsWithSNResponses = zip
                             [ i
@@ -253,18 +270,15 @@ threadMain csmr_settings boardElem = do
 
                     liftIO $ mapM_ Lib2.unlinkAttachmentFiles
                         [ i
-                        | (i, j) <- detailsWithSNResponses
-                        , SN.noticed j
+                        | (i, Just noticerResp) <- detailsWithSNResponses
+                        , SN.noticed noticerResp
                         ]
 
                     return $ Lib2.groupDetails $
-                        ( map fst $
-                            filter
-                                (\(_, noticerResp) ->
-                                    SN.noticed noticerResp == False
-                                )
-                                detailsWithSNResponses
-                        ) >>= id
+                        [ i
+                        | (i, mNoticerResp) <- detailsWithSNResponses
+                        , maybe True (not . SN.noticed) mNoticerResp
+                        ] >>= id
 
             println $ "cleanPostsPerThread length: " ++ (show $ length cleanPostsPerThread)
             println $ "number of Posts total in cleanPostsPerThread: " ++ (show $ length (cleanPostsPerThread >>= snd))
