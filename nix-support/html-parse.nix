@@ -5,7 +5,7 @@ let
     owner = "Zer0-";
     repo = "html-parse";
     rev = "master";
-    sha256 = "sha256-CsGNpL+EWCdhWCe7me1l0LjyvAy8xm51UYwVYd4SI3g=";
+    sha256 = "sha256-/HqfX2sHZofdxLntD7+Sj2VKVz6m+D+DxuUM45KggsU=";
   };
 
   drv = nixpkgs.haskellPackages.callCabal2nix "html-parse" src { };

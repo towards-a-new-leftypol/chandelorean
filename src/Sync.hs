@@ -36,6 +36,7 @@ import qualified Common.PostsType as Post
 import qualified Common.AttachmentType as At
 import qualified ClientAPI as API
 import Clients.LainJSONClient (lainJSONClient)
+import Clients.EscapedLainJSONClient (escapedLainJSONClient)
 import Clients.TinyboardCCHTML (tinyboardHTMLClient)
 import qualified Network.SpamNoticer as SN
 import qualified Common.Network.SiteType as NSite
@@ -621,4 +622,5 @@ syncWebsites csmr_settings = do
 
 chooseApi :: S.ClientApiType -> API.ClientAPI
 chooseApi S.LainJSON = lainJSONClient
+chooseApi S.EscapedLainJSON = escapedLainJSONClient
 chooseApi S.TinyboardCCHTML = tinyboardHTMLClient

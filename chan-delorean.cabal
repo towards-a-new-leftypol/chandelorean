@@ -92,6 +92,7 @@ executable chan-delorean-consoomer
                       Lib2
                       ClientAPI
                       Clients.LainJSONClient
+                      Clients.EscapedLainJSONClient
                       Clients.TinyboardCCHTML
                       Common.Network.BoardType
                       Common.Network.PostType
@@ -171,6 +172,7 @@ executable download-missing-attachments
                       ClientAPI
                       Clients.LainJSONClient
                       Clients.TinyboardCCHTML
+                      Clients.EscapedLainJSONClient
                       Data.WordUtil
                       Hash
                       Lib
