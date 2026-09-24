@@ -43,8 +43,8 @@ import qualified Common.Network.SiteType as NSite
 import qualified Common.Network.BoardType as NBoard
 
 println :: String -> Lib2.IOe ()
-println = const $ return ()
--- println = liftIO . putStrLn
+-- println = const $ return ()
+println = liftIO . putStrLn
 
 
 consumerSettingsToPartialJSONSettings :: S.ConsumerJSONSettings -> JS.JSONSettings
@@ -120,11 +120,11 @@ threadMain csmr_settings boardElem = do
 
             println "HELLO C"
 
-            let existingThreadIds = Set.fromList $
-                    map Client.thread_id existingBoardPostIds
+            existingThreads <- Lib2.liftHttpIO $
+                Client.getThreads settings (NBoard.board_id board) (map (Thread.board_thread_id . fst) apiPosts)
 
+            let existingThreadIds = Set.fromList $ map Thread.thread_id existingThreads
             println $ "existingThreadIds size: " ++ (show $ Set.size existingThreadIds)
-
 
             maxLocalIdxMap <- Map.fromList <$> (
                 Lib2.liftHttpIO $ Client.getThreadMaxLocalIdx
@@ -136,13 +136,16 @@ threadMain csmr_settings boardElem = do
 
             println "HELLO D"
 
-            let boardTidTidMap = Lib2.figureOutBoardThreadIdToThreadIdMap
+            let initialBoardTidTidMap = Lib2.figureOutBoardThreadIdToThreadIdMap
                     (Map.fromList [ (Thread.board_thread_id t, map JSONPost.no jps)
                     | (t, jps) <- apiPosts
                     ])
                     (Map.fromList [ (Client.board_post_id postId, Client.thread_id postId)
                     | postId <- existingBoardPostIds
                     ])
+
+            let boardTidTidMap = Map.union initialBoardTidTidMap
+                    (Map.fromList [ (Thread.board_thread_id t, Thread.thread_id t) | t <- existingThreads ])
 
             println $ "boardTidTidMap size: " ++ (show $ Map.size boardTidTidMap)
 

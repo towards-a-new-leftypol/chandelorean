@@ -106,12 +106,30 @@ extractFile trees = do
         , JF.h = Just h
         , JF.w = Just w
         , JF.fsize = fsize
-        , JF.filename = parsedName
+        , JF.filename = basename parsedName
         , JF.spoiler = Just isSpoiler
         , JF.md5 = ""
         , JF.file_path = href
         , JF.thumb_path = thumbSrc
         }
+
+
+-- | Basename without the final extension.
+-- Examples:
+--   "photo.jpg"       -> "photo"
+--   "archive.tar.gz"  -> "archive.tar"
+--   "photo"           -> "photo"
+--   ".hidden"         -> ".hidden"
+--   "dir/photo.jpg"   -> "photo"
+basename :: T.Text -> T.Text
+basename p =
+  let name = T.takeWhileEnd (\c -> c /= '/' && c /= '\\') p
+   in case T.breakOnEnd "." name of
+        (baseDot, ext)
+          | T.null ext          -> name   -- no extension
+          | T.length baseDot <= 1 -> name -- dotfile like ".hidden"
+          | otherwise           -> T.init baseDot
+
 
 -- | Extracts an embed URL/ID from a list of sibling/child nodes containing a video-container.
 extractEmbed :: [Tree RawToken] -> Maybe Text
