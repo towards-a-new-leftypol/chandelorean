@@ -38,6 +38,7 @@ parseDatetimeAttr txt =
                   ]
     in listToMaybe $ mapMaybe (\f -> parseTimeM True defaultTimeLocale f str) formats
 
+
 -- | Parses size strings like "61.56 KB" or "1.2 MB" into bytes.
 parseSize :: Text -> Maybe Int
 parseSize s = do
@@ -52,26 +53,101 @@ parseSize s = do
           _    -> 1
     return $ round (num * multiplier)
 
--- | Parses the Vichan fileinfo title attribute: "filename.ext (61.56 KB, 1069x387)"
--- Uses breakOnEnd to safely handle filenames that contain parentheses.
-parseFileTitle :: Text -> Maybe (Text, Int, Int, Int)
+
+-- | Parses the Vichan fileinfo title attribute.
+--
+-- Supports both:
+--   "filename.ext (61.56 KB, 1069x387)"
+--   "filename.ext (61.56 KB)"
+--
+-- Dimensions are optional.
+parseFileTitle :: Text -> Maybe (Text, Int, Maybe Int, Maybe Int)
 parseFileTitle title = do
     let (nameAndRest, rest) = T.breakOnEnd " (" title
     guard $ not $ T.null rest
+
     let name = T.dropEnd 2 nameAndRest -- drop the trailing " ("
     let inner = T.init rest             -- drop the trailing ")"
     let parts = T.splitOn ", " inner
-    guard $ length parts == 2
-    let sizeStr = parts !! 0
-        dimStr = parts !! 1
-    fsize <- parseSize sizeStr
-    let dims = T.splitOn "x" dimStr
-    guard $ length dims == 2
-    w <- readMaybe $ T.unpack $ dims !! 0
-    h <- readMaybe $ T.unpack $ dims !! 1
-    return (name, fsize, w, h)
 
--- | Extracts a File record from a list of sibling/child nodes containing fileinfo and img tags.
+    case parts of
+        [sizeStr, dimStr] -> do
+            fsize <- parseSize sizeStr
+            let dims = T.splitOn "x" dimStr
+            guard $ length dims == 2
+            w <- readMaybe $ T.unpack $ dims !! 0
+            h <- readMaybe $ T.unpack $ dims !! 1
+            return (name, fsize, Just w, Just h)
+
+        [sizeStr] -> do
+            fsize <- parseSize sizeStr
+            return (name, fsize, Nothing, Nothing)
+
+        _ -> Nothing
+
+
+-- | Parse CSS width/height from a style attribute.
+--
+-- Example:
+--   "width: 141px; height: 141px"
+parseStyleDims :: Text -> Maybe (Int, Int)
+parseStyleDims style = do
+    let decls = T.splitOn ";" style
+    w <- findCssLength "width" decls
+    h <- findCssLength "height" decls
+    return (w, h)
+  where
+    findCssLength :: Text -> [Text] -> Maybe Int
+    findCssLength prop decls = do
+        decl <- listToMaybe $ filter
+            (\d -> T.strip (T.toLower (fst (T.breakOn ":" d))) == prop)
+            decls
+
+        let val = T.strip $ snd $ T.breakOn ":" decl
+        parseCssPx val
+
+    parseCssPx :: Text -> Maybe Int
+    parseCssPx v =
+        let numStr = T.takeWhile (\c -> isDigit c || c == '.') v
+        in round <$> (readMaybe (T.unpack numStr) :: Maybe Double)
+
+
+-- | Find the thumbnail node for a file block.
+--
+-- Prefers the media inside `<a class="file">`, and accepts either
+-- `<img>` or `<video>`.
+findThumbTree :: [Tree RawToken] -> Maybe (Tree RawToken)
+findThumbTree trees =
+    let fileLink = listToMaybe $ filter isFileLink trees
+    in case fileLink of
+         Just link ->
+             case listToMaybe (thumbCandidates (subForest link)) of
+               Just t  -> Just t
+               Nothing -> listToMaybe (thumbCandidates trees)
+         Nothing ->
+             listToMaybe (thumbCandidates trees)
+  where
+    thumbCandidates scope =
+        findByTag "img" scope ++ findByTag "video" scope
+
+    isFileLink t =
+        getTagName (rootLabel t) == Just "a"
+        && hasTokenClass "file" (rootLabel t)
+
+
+-- | Extract a thumbnail URL from an `<img>` or `<video>`.
+--
+-- For `<img>` this is normally `src`.
+-- For `<video>` we also allow `poster` as a fallback.
+thumbSrcAttr :: Tree RawToken -> Maybe Text
+thumbSrcAttr t =
+    case getAttribute "src" (rootLabel t) of
+      Just src -> Just src
+      Nothing  -> getAttribute "poster" (rootLabel t)
+
+
+-- | Extracts a File record from a list of sibling/child nodes containing
+-- fileinfo and thumbnail/media tags.
 extractFile :: [Tree RawToken] -> Maybe JF.File
 extractFile trees = do
     fileInfoTree <- listToMaybe $ filter
@@ -85,26 +161,38 @@ extractFile trees = do
     aTree <- listToMaybe aTrees
     href <- getAttribute "href" (rootLabel aTree)
     title <- getAttribute "title" (rootLabel aTree)
-    
-    (parsedName, fsize, w, h) <- parseFileTitle title
-    
-    imgTree <- listToMaybe $ findByTag "img" trees
-    thumbSrc <- getAttribute "src" (rootLabel imgTree)
-    
-    let ext = T.toLower $ last $ T.splitOn "." href
+
+    (parsedName, fsize, titleW, titleH) <- parseFileTitle title
+
+    let mbThumbTree = findThumbTree trees
+        mbStyleDims = mbThumbTree
+                  >>= getAttribute "style" . rootLabel
+                  >>= parseStyleDims
+
+        -- Prefer title dimensions, because those are normally the real media
+        -- dimensions. Fall back to thumbnail style dimensions if needed.
+        (w, h) = case (titleW, titleH) of
+                   (Just tw, Just th) -> (Just tw, Just th)
+                   _ -> case mbStyleDims of
+                          Just (sw, sh) -> (Just sw, Just sh)
+                          Nothing       -> (titleW, titleH)
+
+        thumbSrc = fromMaybe "" (mbThumbTree >>= thumbSrcAttr)
+
+        ext = T.toLower $ last $ T.splitOn "." href
         fileId = T.takeWhile isDigit $ last $ T.splitOn "/" href
         linkText = extractText (subForest aTree)
         isSpoiler = linkText == "Spoiler" || "spoiler" `T.isInfixOf` thumbSrc
-        
+
         -- Use mime-types to lookup the mimetype based on the parsed filename extension
         mimeType = decodeUtf8 $ defaultMimeLookup parsedName
-        
+
     return JF.File
         { JF.id = fileId
         , JF.mime = Just mimeType
         , JF.ext = ext
-        , JF.h = Just h
-        , JF.w = Just w
+        , JF.h = h
+        , JF.w = w
         , JF.fsize = fsize
         , JF.filename = basename parsedName
         , JF.spoiler = Just isSpoiler
